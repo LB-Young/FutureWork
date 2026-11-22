@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f7f8f7" />
+    <title>FutureWork · Agent Team</title>
+    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="responsive.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <nav class="rail" aria-label="主导航">
+        <div class="brand-mark" title="FutureWork">F<span>W</span></div>
+        <button class="rail-button active" id="homeButton" aria-label="工作台" title="工作台">▦</button>
+        <button class="rail-button" id="railAgents" aria-label="Agent 好友" title="Agent 好友">♙</button>
+        <button class="rail-button" id="railGroups" aria-label="群聊" title="群聊">▧</button>
+        <div class="rail-spacer"></div>
+        <div class="rail-avatar" title="我的账号">L</div>
+      </nav>
+
+      <aside class="sidebar" id="sidebar" aria-label="好友和群聊">
+        <div class="sidebar-heading">
+          <div>
+            <span class="eyebrow">YOUR WORKSPACE</span>
+            <h1>我的团队</h1>
+          </div>
+          <button class="icon-button" id="collapseSidebar" aria-label="收起侧边栏" title="收起侧边栏">◀</button>
+        </div>
+        <button class="search-box" id="searchButton" aria-label="搜索对话">⌕ <span>搜索 Agent 或群聊</span><kbd>⌘ K</kbd></button>
+        <div class="sidebar-scroll">
+          <button class="section-header" id="agentsToggle" aria-expanded="true"><span>AGENT 好友 <em id="agentCount">05</em></span><span class="chevron">⌄</span></button>
+          <div class="section-items" id="agentList"></div>
+          <button class="add-link" id="newAgentButton">＋ 创建 Agent 好友</button>
+          <button class="section-header groups-header" id="groupsToggle" aria-expanded="true"><span>协作群聊 <em>03</em></span><span class="chevron">⌄</span></button>
+          <div class="section-items" id="groupList"></div>
+        </div>
+        <div class="sidebar-footer"><span class="online-indicator"></span><div><strong>团队运行中</strong><small id="teamCount">5 位 Agent 正在协作</small></div><button class="footer-more" title="演示页面">···</button></div>
+      </aside>
+
+      <main class="workspace" id="workspace">
+        <section class="chat-pane" aria-label="聊天区域">
+          <header class="chat-header">
+            <div class="header-identity"><button class="mobile-menu icon-button" id="mobileMenu" aria-label="打开团队列表">☰</button><div class="avatar assistant-avatar" id="chatAvatar">✦</div><div><h2 id="chatTitle">小未 <span class="assistant-label">个人助理</span></h2><p id="chatSubtitle">在线 · 随时为你协调团队</p></div></div>
+            <div class="header-actions"><button class="quiet-button mobile-activity-button" id="mobileActivityButton">团队消息</button><button class="quiet-button" id="agentSettings" hidden>⚙ 配置能力</button><button class="icon-button" id="chatMore" title="关于此原型">···</button></div>
+          </header>
+          <div class="chat-body" id="chatBody"></div>
+          <div class="composer-wrap">
+            <div class="suggestions" id="suggestions"><button data-prompt="帮我整理本周项目进展">整理项目进展</button><button data-prompt="设计一个新产品的发布计划">制定发布计划</button><button data-prompt="帮我分析竞品并创建需要的 Agent">分析竞品</button></div>
+            <form class="composer" id="messageForm"><button type="button" class="attach-button" title="附件展示" id="attachButton">＋</button><textarea id="messageInput" rows="1" placeholder="给小未发消息，或直接安排一个任务…" aria-label="输入消息"></textarea><button class="send-button" type="submit" aria-label="发送消息">↑</button></form>
+            <p class="composer-note">页面交互演示 · 消息和配置仅在当前页面会话中有效</p>
+          </div>
+        </section>
+
+        <aside class="activity-pane" id="activityPane" aria-label="团队消息">
+          <header class="activity-header"><div><span class="eyebrow">TEAM ACTIVITY</span><h2 id="activityTitle">最近动态 <span class="activity-count" id="activityCount">06</span></h2></div><button class="expand-button" id="expandButton" aria-label="展开所有对话" title="展开所有对话">⤢ <span>展开</span></button></header>
+          <div class="activity-controls"><button class="filter-button active" id="allFilter">全部消息</button><button class="filter-button" id="approvalFilter">待我审批 <span class="approval-badge">2</span></button></div>
+          <div class="activity-intro" id="activityIntro">团队正在处理的事，随时一眼掌握。</div>
+          <div class="activity-list" id="activityList"></div>
+          <div class="activity-bottom"><span class="live-dot"></span> 所有 Agent 保持连接 <span>刚刚更新</span></div>
+        </aside>
+      </main>
+    </div>
+
+    <div class="overlay" id="overlay" hidden></div>
+    <aside class="drawer" id="settingsDrawer" aria-label="Agent 能力配置" aria-hidden="true"><div class="drawer-header"><div><span class="eyebrow">AGENT SETTINGS</span><h2 id="drawerTitle">配置能力</h2></div><button class="icon-button" id="closeDrawer" aria-label="关闭">×</button></div><div class="drawer-body"><div class="drawer-agent"><div class="avatar" id="drawerAvatar"></div><div><strong id="drawerAgentName"></strong><small id="drawerAgentRole"></small></div><span class="ready-pill">● 运行中</span></div><div class="form-section"><h3>模型</h3><p>选择这个 Agent 使用的模型</p><select id="modelSelect" aria-label="模型"><option>GPT-5.1</option><option>Claude Sonnet 4.5</option><option>Gemini 3 Pro</option></select></div><div class="form-section"><h3>工具权限</h3><p>按需开放工具，变更只用于原型演示</p><div id="toolToggles"></div></div><div class="form-section"><h3>任务自主权</h3><p>执行重要操作前是否需要你审批</p><label class="setting-row"><span><strong>关键操作需要审批</strong><small>外部发送、发布和删除操作</small></span><input type="checkbox" id="approvalToggle" checked /><span class="switch"></span></label></div></div><div class="drawer-footer"><button class="primary-button" id="saveSettings">保存配置</button></div></aside>
+    <div class="modal" id="createModal" role="dialog" aria-modal="true" aria-labelledby="modalTitle" hidden><div class="modal-card"><button class="icon-button modal-close" id="closeModal" aria-label="关闭">×</button><div class="modal-icon">✦</div><span class="eyebrow">BUILD YOUR TEAM</span><h2 id="modalTitle">创建 Agent 好友</h2><p>描述你想要的伙伴，个人助理会帮你组建团队。</p><label>Agent 名称<input id="newAgentName" placeholder="例如：数据分析师" maxlength="20" /></label><label>专长描述<input id="newAgentRole" placeholder="例如：负责数据整理与洞察" maxlength="40" /></label><div class="modal-actions"><button class="quiet-button" id="cancelCreate">取消</button><button class="primary-button" id="confirmCreate">创建 Agent</button></div></div></div>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="script.js"></script>
+  </body>
+</html>
