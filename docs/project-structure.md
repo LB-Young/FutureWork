@@ -6,7 +6,7 @@
 
 1. **配置文件定义身份，数据库保存运行状态。** `config/agents/<id>.toml` 和 `config/groups/<id>.toml` 是 Agent 与群聊定义的权威来源。消息、任务、审批、摘要、记忆、未读数不能写回这些配置文件，存入数据库。
 2. **一个 ID 对应一个配置文件。** 文件名、文件内 `id` 和数据库投影 ID 必须相同。Agent 与群聊各用自己的命名空间；不要用展示名称、数组下标或文件路径作为运行时主键。
-3. **上下文按作用域隔离。** Agent 私聊使用 `(workspace_id, agent, agent_id)`；群聊使用 `(workspace_id, group, group_id)`。小未也是一个特殊 Agent，使用独立的 Agent 作用域。任务有独立的短期作用域 `(workspace_id, task, task_id)`。
+3. **上下文按作用域隔离。** 小未对话使用 `(workspace_id, assistant, assistant_id)`；Agent 私聊使用 `(workspace_id, agent, agent_id)`；群聊使用 `(workspace_id, group, group_id)`；任务使用短期作用域 `(workspace_id, task, task_id)`。
 4. **群成员共享群上下文，不共享私聊上下文。** Agent 在群聊中可用自身角色配置和该群的历史、摘要及共享记忆；不得自动读取自己与用户的私聊，也不得读取其他群的历史。
 5. **版本固定。** 配置变更产生新版本；已启动任务记录 Agent/群聊配置版本与上下文快照游标，避免执行中权限和规则悄然变化。
 6. **用户创建也是创建配置。** 小未或用户在页面创建 Agent/群聊时，服务端先验证并写入对应 TOML，再同步数据库投影；高风险权限仍先走审批。
@@ -69,6 +69,7 @@ FutureWork/
 │   │   └── matching.py              # 纯 Python 能力匹配算法
 │   ├── contexts/
 │   │   ├── types.py                 # ScopeKey、ContextSnapshot、引用元数据
+│   │   ├── assistant_context.py     # 小未对话、计划摘要与任务追踪
 │   │   ├── agent_context.py         # Agent 私聊历史与私有记忆
 │   │   ├── group_context.py         # 群消息、群摘要与共享记忆
 │   │   ├── task_context.py          # 单次任务的临时输入和产物
@@ -77,10 +78,12 @@ FutureWork/
 │   │   ├── retrieval.py             # 按作用域检索；不得跨域默认搜索
 │   │   └── policy.py                # 显式分享、保留与删除规则
 │   ├── runtime/
-│   │   ├── engine.py                # 所有 Agent 共用的推理/工具执行循环
-│   │   ├── run_spec.py              # Agent 配置版本、作用域、任务和预算快照
-│   │   ├── factory.py               # 将 TOML 配置装配为一次运行实例
-│   │   ├── orchestrator.py          # 小未专有的规划、分派、汇总扩展
+│   │   ├── router.py                # 按会话类型选择三种顶层 Runtime
+│   │   ├── assistant_runtime.py     # 小未对话：规划、分派、建 Agent、汇总
+│   │   ├── direct_runtime.py        # Agent 私聊：单 Agent 回复与私有上下文
+│   │   ├── group_runtime.py         # 群聊：成员路由、发言顺序、共享上下文
+│   │   ├── agent_executor.py        # 三种 Runtime 共用的单 Agent 推理/工具循环
+│   │   ├── run_spec.py              # 配置版本、上下文作用域、任务和预算快照
 │   │   ├── checkpoints.py           # 运行状态持久化、恢复和取消
 │   │   └── tool_dispatch.py         # 工具授权、审批与调用入口
 │   ├── services/
@@ -214,54 +217,57 @@ external_share = "approval_required"
 
 文件解析使用 `tomllib`，Pydantic schema 设置 `extra = "forbid"`，避免拼写错误被静默忽略。校验必须覆盖：schema 版本、文件名与 ID 一致、ID 唯一、模型/工具/能力引用有效、成员关系有效、上下文预算为正、风险策略不弱于全局下限、提示词路径不能越界。配置通过校验后计算内容哈希并存入 `config_versions`；热更新只对新任务生效。
 
-### 3.4 配置如何变成 Agent Runtime
+### 3.4 三种对话 Runtime
 
-**共用同一个 Runtime 引擎实现，但不共用同一个运行实例或上下文。** Agent 好友与小未都由 `runtime/factory.py` 根据配置版本构建 `RunSpec`，交给 `runtime/engine.py` 的同一套执行循环。每次消息/任务启动一个 `AgentRun`；其状态（当前步骤、模型用量、工具调用、审批等待、取消标记）按 `run_id` 持久化。worker 可复用进程，不需要为每位好友常驻一个 Python 进程，也不能把历史记录放在全局单例对象里。
+三类对话需要**三个不同的顶层 Runtime**。`runtime/router.py` 根据会话类型选择其一；它们各自决定上下文、状态流转和可执行动作，共用底层的 `AgentExecutor`、模型网关、工具检查和 checkpoint 组件。这里的 Runtime 是一次会话处理的执行器，不要求为每个好友或群聊常驻一个 Python 进程。
+
+| Runtime | 负责的会话 | 上下文作用域 | 核心职责 |
+| --- | --- | --- | --- |
+| `AssistantRuntime` | 用户 ↔ 小未 | `(workspace_id, "assistant", "assistant")` | 理解目标、规划、分派、创建 Agent 配置草案、跟踪和汇总任务 |
+| `DirectChatRuntime` | 用户 ↔ 某个 Agent 好友 | `(workspace_id, "agent", agent_id)` | 加载该 Agent 配置和私聊上下文，完成单 Agent 回复与获准的工具调用 |
+| `GroupChatRuntime` | 用户与多个 Agent 的群聊 | `(workspace_id, "group", group_id)` | 加载群配置和共享上下文，处理 @、选发言者、控制并发/顺序、汇总群内回复 |
 
 ```text
-Agent TOML + 配置版本 + ScopeKey + Task/Message
-  -> RuntimeFactory.build_run_spec(...)
-  -> AgentRuntime.run(run_spec)
-       -> ContextAssembler 按作用域取上下文
-       -> ModelGateway 生成回复或工具意图
-       -> ToolDispatch 检查 Agent 授权、资源范围与审批
-       -> Checkpoint 保存运行状态和结果
+用户消息
+  -> MessageRouter 读取会话类型与配置版本
+     -> assistant_direct: AssistantRuntime.run(assistant_scope)
+     -> agent_direct:   DirectChatRuntime.run(agent_scope)
+     -> group:          GroupChatRuntime.run(group_scope)
+
+三种 Runtime 调用共用的 AgentExecutor：
+  AgentExecutor.run(agent_config_version, allowed_context, task, budget)
+    -> ModelGateway -> ToolDispatch -> Checkpoint
 ```
 
-| 维度 | 普通 Agent 好友 | 小未（assistant） |
-| --- | --- | --- |
-| 执行核心 | `AgentRuntime` | 同一个 `AgentRuntime` |
-| 配置来源 | `config/agents/<id>.toml` | `config/agents/assistant.toml` |
-| 默认上下文 | 该好友的私聊作用域 | 小未自己的私聊作用域 |
-| 能力扩展 | 其 TOML 声明的专长和已授权工具 | 额外装配 `orchestrator.py` 的规划、匹配、分派、汇总能力 |
-| 权限 | 仅本 Agent 授权与当前任务数据范围 | 可查看任务状态与获准分享的产物；不能绕开其他 Agent 的私聊权限 |
-| 运行状态 | 独立 `run_id`、预算、checkpoint | 独立 `run_id`、预算、checkpoint，通常创建并跟踪子任务 |
+**AssistantRuntime** 可以创建任务计划和子任务，但只从自己的上下文及经授权回传的任务产物中取材。它不能因“协调者”身份直接读取任意好友私聊或绕过权限审批。**DirectChatRuntime** 固定一个好友配置版本及其私有上下文，聊天内容不会写入群共享记忆。**GroupChatRuntime** 自己拥有群会话状态机和上下文管理：按群配置选出一位或多位成员，再分别调用成员的 `AgentExecutor`，传入的始终是群上下文与当前任务授权材料，不带入成员私聊。小未若作为群主持人参与，仍由 GroupChatRuntime 管理群会话，小未的单次执行也只能看到该群允许的资料。
 
-小未不是另写一套模型循环，而是**同一引擎 + 不同的能力配置和编排扩展**。编排扩展只能生成任务计划、选择 Agent、创建配置草案和汇总结果；每项仍经过 `domain/permissions.py` 与用户审批。普通 Agent 不能仅凭提示词宣称自己具有小未的分派能力。
+三个 Runtime 的顶层状态分别持久化为 `runtime_runs` 记录，含 `run_id`、`runtime_type`、`scope_key`、配置版本、消息游标、状态、预算和 checkpoint。群内每位成员的单次执行另有 `agent_executions` 子记录，关联群 `run_id`，以便取消、重试和审计。任务 worker 调用 `AgentExecutor` 完成子任务；它属于任务执行路径，不混用私聊或群聊的顶层状态机。
 
-群聊也**不创建一个能绕过成员权限的“群 Agent Runtime”**。`GroupContextService` 管理共享上下文；`reply.strategy` 选出发言的 Agent，然后用该 Agent 的配置版本运行同一个引擎，传入 `(workspace_id, group, group_id)`。如果发言者是小未，则装配小未的编排扩展，但可见数据仍限于该群与明确共享的任务产物。多个 Agent 回复时每人有独立 `run_id` 和预算，群配置控制最大并发及发言顺序。
+`runtime.toml` 统一定义最大循环次数、超时、重试、并发、token/费用硬上限和 checkpoint 周期；Agent TOML、群 TOML 只能在硬上限内收紧。`RunSpec` 固定 `agent_config_version?`、`group_config_version?`、`scope_key`、`context_cursor`、`task_id?` 和权限快照。权限变化只影响新运行；已暂停运行恢复时仍需重新检查敏感工具授权和审批有效期。
 
-`runtime.toml` 负责全局的最大循环次数、模型超时、重试、并发、token/费用硬上限和 checkpoint 周期；每位 Agent TOML 可在硬上限内收紧或选择 profile。`RunSpec` 固定 `agent_config_version`、`group_config_version?`、`scope_key`、`context_cursor`、`task_id?` 和有效权限快照。权限变化只影响新运行；已暂停的运行恢复时还须重新检查敏感工具授权与审批有效期。
-
-**当前 MVP 现状：** `backend/app.py` 的 `send_message` / `execute_task` 与 `backend/model.py` 的 `respond` 是简化执行路径，还没有统一 `AgentRuntime`、可恢复 checkpoint 或独立上下文服务。上面的目录是下一阶段实施目标，不应把现有简化路径误认为已经具备完整 Runtime。
+**当前 MVP 现状：** `backend/app.py` 的 `send_message` / `execute_task` 和 `backend/model.py` 的 `respond` 是简化路径，目前没有这三个独立 Runtime、群成员子执行记录或可恢复 checkpoint。这是下一阶段需要实施的结构。
 
 ## 4. 独立上下文模型
 
-### 4.1 三种作用域
+### 4.1 四种作用域
 
 | 作用域 | 唯一键 | 内容 | 可读取者 |
 | --- | --- | --- | --- |
+| 小未对话 | `(workspace_id, "assistant", "assistant")` | 用户与小未的对话、计划摘要和待跟踪任务 | 用户、小未；其他 Agent 只能接收明确分派的任务材料 |
 | Agent 私聊 | `(workspace_id, "agent", agent_id)` | 用户与该 Agent 的私聊消息、私有摘要、私有记忆 | 用户、该 Agent、经明确授权的小未任务 |
 | 群聊 | `(workspace_id, "group", group_id)` | 群消息、群摘要、群共享记忆、群任务关联 | 用户、当前成员 Agent；离群成员不再获得新上下文 |
 | 任务 | `(workspace_id, "task", task_id)` | 本任务输入、步骤产物、引用和审批快照 | 被分派的 Agent 仅可读取自己的步骤及明确共享的产物 |
 
-私聊、群聊、任务共用底层存储接口 `ContextStore`，但分别由 `AgentContextService`、`GroupContextService`、`TaskContextService` 处理。所有存取方法必须接收类型化 `ScopeKey`；禁止只用裸 `conversation_id` 查询。数据库为每条消息/摘要/记忆加 `workspace_id`、`scope_type`、`scope_id`，并建联合索引。仓储查询总是同时按三者过滤；应用层再检查成员和授权。
+小未对话、私聊、群聊、任务共用底层存储接口 `ContextStore`，但分别由 `AssistantContextService`、`AgentContextService`、`GroupContextService`、`TaskContextService` 处理。所有存取方法必须接收类型化 `ScopeKey`；禁止只用裸 `conversation_id` 查询。数据库为每条消息/摘要/记忆加 `workspace_id`、`scope_type`、`scope_id`，并建联合索引。仓储查询总是同时按三者过滤；应用层再检查成员和授权。
 
 **建议表：** `context_messages`、`context_summaries`、`context_memories`、`context_shares`。消息表保存发送者、所属作用域、源消息 ID、可见性；摘要表保存覆盖的消息游标和版本；记忆表保存来源、有效期、删除标记；分享表保存来源/目标作用域、分享人、目的、过期时间与撤销状态。审批、任务和配置版本各有独立表，不与上下文混为一个 JSON 字段。
 
 ### 4.2 模型上下文组装
 
 ```text
+与小未对话：
+  assistant.toml 配置版本 + 小未对话最近消息 + 计划摘要/任务追踪 + 获准分享的产物
+
 与 Agent 私聊：
   Agent 配置版本 + 私聊最近消息 + 该 Agent 私有摘要/记忆 + 当前任务授权材料
 
@@ -316,13 +322,14 @@ sequenceDiagram
 ## 6. 与当前 MVP 的迁移路径
 
 1. **先拆配置，不改 API 行为。** 将 `config/app.toml` 中 `[[agents.seed]]`、`[[groups.seed]]` 原样移至单独 TOML，保留 `research/design/code/write/plan` 和 `launch/weekly/ideas` ID。`bootstrap.py` 读目录，校验后向现有数据库投影；为旧数据库增加 `config_version`、`config_hash`。先让测试同时验证旧消息不丢失。
-2. **再引入类型化上下文。** 给现有 `messages` 和 `read_marks` 增加 `scope_type`、`scope_id`、`workspace_id`；迁移 `assistant` 和 Agent ID 为 `agent` 类型，群 ID 为 `group` 类型。建立联合索引，所有查询改用 `ScopeKey`。检查无同名 ID 混淆和跨群读取。
-3. **拆分服务并建立 Runtime。** 从当前 `backend/app.py` 提取 API、Agent/Group 服务、上下文服务和任务服务；`backend/algorithm.py` 拆成匹配与规划模块。将 `respond` 和 `execute_task` 收敛到共用的 `AgentRuntime`，由 `assistant.toml` 装配编排扩展。保持现有 REST 契约和前端路径不变，避免一次迁移引入多种变量。
+2. **再引入类型化上下文。** 给现有 `messages` 和 `read_marks` 增加 `scope_type`、`scope_id`、`workspace_id`；迁移 `assistant` 为 `assistant` 类型、普通 Agent ID 为 `agent` 类型、群 ID 为 `group` 类型。建立联合索引，所有查询改用 `ScopeKey`。检查无同名 ID 混淆和跨群读取。
+3. **拆分服务并建立三种 Runtime。** 从当前 `backend/app.py` 提取 API、Agent/Group 服务、上下文服务和任务服务；`backend/algorithm.py` 拆成匹配与规划模块。按会话类型实现 `AssistantRuntime`、`DirectChatRuntime`、`GroupChatRuntime`，将共同的模型/工具循环收敛到 `AgentExecutor`。保持现有 REST 契约和前端路径不变，避免一次迁移引入多种变量。
 4. **实现配置写入闭环。** 手动创建、由小未创建、群聊创建及配置编辑都走同一个 writer + validator；高风险草案先审批。增加文件与投影对账、版本冲突和崩溃恢复测试。
 5. **最后替换运行基础设施。** 按 [系统设计](system-design.md) 引入 PostgreSQL、持久队列、用户鉴权和工具沙箱；上下文作用域与配置契约无需再改。
 
 ## 7. 必须通过的隔离测试
 
+- 同一条用户消息按会话类型只进入对应 Runtime；小未对话、Agent 私聊和群聊分别写入自己的 `ScopeKey` 与 checkpoint。
 - Agent A 私聊中出现的唯一标记，不得出现在 Agent B 私聊或任一群上下文的检索结果中。
 - Agent A 加入群 X，不得因此读取自己私聊或群 Y 的摘要；群 X 新成员默认不得读取加入前历史。
 - 小未把私聊产物分享至群 X 时，只能看到指定产物，撤销后检索结果中消失。
