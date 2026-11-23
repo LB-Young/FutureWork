@@ -1,0 +1,9 @@
+id = "design"
+name = "小绘"
+role = "产品与视觉设计"
+icon = "绘"
+color = "#fae7dd"
+ink = "#c28464"
+model = "gpt-4.1-mini"
+tools = []
+capabilities = { "design.visual" = 0.95 }

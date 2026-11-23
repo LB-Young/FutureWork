@@ -1,0 +1,9 @@
+id = "write"
+name = "言言"
+role = "内容与文案"
+icon = "言"
+color = "#f6e6ef"
+ink = "#ae7795"
+model = "gpt-4.1-mini"
+tools = []
+capabilities = { "writing.copy" = 0.95 }

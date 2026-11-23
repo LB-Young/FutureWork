@@ -1,0 +1,9 @@
+id = "plan"
+name = "程程"
+role = "项目与日程"
+icon = "程"
+color = "#e9eddd"
+ink = "#8a9d65"
+model = "gpt-4.1-mini"
+tools = []
+capabilities = { "planning.schedule" = 0.95, "planning.general" = 0.90 }

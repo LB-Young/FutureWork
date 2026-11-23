@@ -1,0 +1,7 @@
+id = "assistant"
+name = "小未"
+role = "个人助理"
+kind = "assistant"
+model = "gpt-4.1-mini"
+tools = []
+capabilities = { "planning.general" = 1.0 }

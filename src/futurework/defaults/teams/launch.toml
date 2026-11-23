@@ -1,0 +1,7 @@
+id = "launch"
+name = "产品发布小组"
+role = "小绘、言言、程程"
+icon = "发"
+color = "#e4ede7"
+ink = "#398769"
+members = ["design", "write", "plan"]

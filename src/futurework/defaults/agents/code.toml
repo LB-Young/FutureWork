@@ -1,0 +1,9 @@
+id = "code"
+name = "阿码"
+role = "开发与自动化"
+icon = "码"
+color = "#dcebea"
+ink = "#4e9c91"
+model = "gpt-4.1-mini"
+tools = []
+capabilities = { "engineering.code" = 0.95 }

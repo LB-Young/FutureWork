@@ -58,7 +58,8 @@ class Database:
                 CREATE TABLE IF NOT EXISTS groups (
                     id TEXT PRIMARY KEY, name TEXT NOT NULL, role TEXT NOT NULL,
                     icon TEXT NOT NULL, color TEXT NOT NULL, ink TEXT NOT NULL,
-                    members TEXT NOT NULL, created_at TEXT NOT NULL
+                    members TEXT NOT NULL, created_at TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'active'
                 );
                 CREATE TABLE IF NOT EXISTS messages (
                     id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL,
@@ -95,16 +96,50 @@ class Database:
             step_columns = {row["name"] for row in connection.execute("PRAGMA table_info(task_steps)")}
             if "agent_version" not in step_columns:
                 connection.execute("ALTER TABLE task_steps ADD COLUMN agent_version INTEGER NOT NULL DEFAULT 1")
-            if connection.execute("SELECT COUNT(*) FROM agents").fetchone()[0] == 0:
-                for item in config["agents"]["seed"]:
-                    self.insert_agent(connection, {**item, "approval": True, "version": 1, "status": "active"})
-            if connection.execute("SELECT COUNT(*) FROM groups").fetchone()[0] == 0:
-                for item in config["groups"]["seed"]:
+            group_columns = {row["name"] for row in connection.execute("PRAGMA table_info(groups)")}
+            if "status" not in group_columns:
+                connection.execute("ALTER TABLE groups ADD COLUMN status TEXT NOT NULL DEFAULT 'active'")
+            configured_agent_ids = set()
+            for item in config["agents"]["seed"]:
+                configured_agent_ids.add(item["id"])
+                existing = connection.execute("SELECT * FROM agents WHERE id=?", (item["id"],)).fetchone()
+                if not existing:
+                    self.insert_agent(connection, {**item, "version": 1})
+                    continue
+                current = decode_agent(existing)
+                compared = ("name", "role", "icon", "color", "ink", "model", "tools", "capabilities", "approval", "status")
+                if any(current[key] != item[key] for key in compared):
                     connection.execute(
-                        "INSERT INTO groups VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                        (item["id"], item["name"], item["role"], item["icon"], item["color"],
-                         item["ink"], json.dumps(item["members"]), utc_now()),
+                        "UPDATE agents SET name=?, role=?, icon=?, color=?, ink=?, model=?, tools=?, capabilities=?, approval=?, status=?, version=version+1 WHERE id=?",
+                        (item["name"], item["role"], item["icon"], item["color"], item["ink"], item["model"],
+                         json.dumps(item["tools"], ensure_ascii=False), json.dumps(item["capabilities"]),
+                         int(item["approval"]), item["status"], item["id"]),
                     )
+            for row in connection.execute("SELECT id FROM agents WHERE status='active'"):
+                if row["id"] not in configured_agent_ids:
+                    connection.execute("UPDATE agents SET status='archived' WHERE id=?", (row["id"],))
+            configured_team_ids = set()
+            for item in config["groups"]["seed"]:
+                configured_team_ids.add(item["id"])
+                existing = connection.execute("SELECT * FROM groups WHERE id=?", (item["id"],)).fetchone()
+                if not existing:
+                    connection.execute(
+                        "INSERT INTO groups VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        (item["id"], item["name"], item["role"], item["icon"], item["color"],
+                         item["ink"], json.dumps(item["members"]), utc_now(), item["status"]),
+                    )
+                    continue
+                current = decode_group(existing)
+                compared = ("name", "role", "icon", "color", "ink", "members", "status")
+                if any(current[key] != item[key] for key in compared):
+                    connection.execute(
+                        "UPDATE groups SET name=?, role=?, icon=?, color=?, ink=?, members=?, status=? WHERE id=?",
+                        (item["name"], item["role"], item["icon"], item["color"], item["ink"],
+                         json.dumps(item["members"]), item["status"], item["id"]),
+                    )
+            for row in connection.execute("SELECT id FROM groups WHERE status='active'"):
+                if row["id"] not in configured_team_ids:
+                    connection.execute("UPDATE groups SET status='archived' WHERE id=?", (row["id"],))
 
     @staticmethod
     def insert_agent(connection: sqlite3.Connection, agent: dict):
@@ -129,7 +164,7 @@ class Database:
 
     def groups(self) -> list[dict]:
         with self.transaction() as connection:
-            return [decode_group(row) for row in connection.execute("SELECT * FROM groups ORDER BY created_at, id")]
+            return [decode_group(row) for row in connection.execute("SELECT * FROM groups WHERE status='active' ORDER BY created_at, id")]
 
     def agent(self, agent_id: str) -> dict | None:
         with self.transaction() as connection:

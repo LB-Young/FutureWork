@@ -1,0 +1,9 @@
+id = "research"
+name = "知知"
+role = "研究与洞察"
+icon = "知"
+color = "#e7e8fa"
+ink = "#7873ad"
+model = "gpt-4.1-mini"
+tools = []
+capabilities = { "research.web" = 0.95 }

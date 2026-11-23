@@ -1,0 +1,7 @@
+id = "ideas"
+name = "灵感碰撞室"
+role = "知知、小绘、言言"
+icon = "灵"
+color = "#f7eae0"
+ink = "#bd8660"
+members = ["research", "design", "write"]

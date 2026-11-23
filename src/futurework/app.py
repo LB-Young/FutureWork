@@ -11,10 +11,11 @@ from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from backend.algorithm import assign_steps, plan_steps
-from backend.config import ROOT, database_path, load_config
-from backend.database import Database, decode_agent, utc_now
-from backend.model import respond
+from futurework.algorithm import assign_steps, plan_steps
+from futurework.config import WEB_DIRECTORY, database_path, load_config
+from futurework.database import Database, decode_agent, utc_now
+from futurework.home import ConfigStore, ensure_home
+from futurework.model import respond
 
 
 def new_id() -> str:
@@ -51,13 +52,17 @@ class ReadInput(BaseModel):
     message_id: str
 
 
-def create_app(config_path: str | Path | None = None, db_path: str | Path | None = None) -> FastAPI:
-    config = load_config(config_path)
-    database = Database(database_path(config, db_path))
+def create_app(config_path: str | Path | None = None, db_path: str | Path | None = None,
+               home: str | Path | None = None) -> FastAPI:
+    user_home = ensure_home(home)
+    config = load_config(config_path, user_home)
+    config_store = ConfigStore(user_home)
+    database = Database(database_path(config, db_path, user_home))
     database.initialize(config)
     app = FastAPI(title="FutureWork API", version="0.1.0")
     app.state.config = config
     app.state.database = database
+    app.state.home = user_home
 
     def get_conversation(conversation_id: str) -> dict:
         if conversation_id == "assistant":
@@ -66,7 +71,7 @@ def create_app(config_path: str | Path | None = None, db_path: str | Path | None
         if agent and agent["status"] == "active":
             return {**agent, "kind": "agent"}
         group = database.group(conversation_id)
-        if group:
+        if group and group["status"] == "active":
             return {**group, "kind": "group"}
         raise HTTPException(404, "conversation not found")
 
@@ -84,7 +89,7 @@ def create_app(config_path: str | Path | None = None, db_path: str | Path | None
         database.emit(connection, "message.created", {"conversation_id": conversation_id, "message_id": message["id"]})
         return message
 
-    def make_agent(connection, name: str, role: str, capability: str) -> dict:
+    def make_agent(connection, write_config, name: str, role: str, capability: str) -> dict:
         if connection.execute("SELECT COUNT(*) FROM agents WHERE status='active'").fetchone()[0] >= config["limits"]["max_agents"]:
             raise HTTPException(409, "agent limit reached")
         base_name = name.strip()
@@ -101,10 +106,11 @@ def create_app(config_path: str | Path | None = None, db_path: str | Path | None
             "approval": True, "version": 1, "status": "active",
         }
         database.insert_agent(connection, agent)
+        write_config("agents", agent)
         database.emit(connection, "agent.created", {"agent_id": agent["id"]})
         return agent
 
-    def apply_agent_patch(connection, agent_id: str, proposal: dict):
+    def apply_agent_patch(connection, write_config, agent_id: str, proposal: dict):
         current = connection.execute("SELECT version FROM agents WHERE id=?", (agent_id,)).fetchone()
         if not current or current["version"] != proposal["expected_version"]:
             raise HTTPException(409, "agent configuration has changed")
@@ -112,6 +118,8 @@ def create_app(config_path: str | Path | None = None, db_path: str | Path | None
             "UPDATE agents SET model=?, tools=?, approval=?, version=version+1 WHERE id=?",
             (proposal["model"], json.dumps(proposal["tools"], ensure_ascii=False), int(proposal["approval"]), agent_id),
         )
+        row = connection.execute("SELECT * FROM agents WHERE id=?", (agent_id,)).fetchone()
+        write_config("agents", decode_agent(row))
         database.emit(connection, "agent.updated", {"agent_id": agent_id})
 
     async def execute_task(task_id: str):
@@ -190,9 +198,10 @@ def create_app(config_path: str | Path | None = None, db_path: str | Path | None
             raise HTTPException(422, "agent name or role is too long")
         rules = plan_steps(body.role, config)
         capability = rules[0]["capability"]
-        with database.transaction() as connection:
-            created = make_agent(connection, body.name, body.role, capability)
-            insert_message(connection, created["id"], "agent", created["name"], f"你好，我是{created['name']}。我的职责是{created['role']}。")
+        with config_store.batch() as write_config:
+            with database.transaction() as connection:
+                created = make_agent(connection, write_config, body.name, body.role, capability)
+                insert_message(connection, created["id"], "agent", created["name"], f"你好，我是{created['name']}。我的职责是{created['role']}。")
         return created
 
     @app.patch("/api/v1/agents/{agent_id}")
@@ -221,8 +230,9 @@ def create_app(config_path: str | Path | None = None, db_path: str | Path | None
                 insert_message(connection, agent_id, "system", "系统", description, approval_id=approval_id)
                 database.emit(connection, "approval.created", {"approval_id": approval_id, "conversation_id": agent_id})
             return {"status": "pending_approval", "approval_id": approval_id}
-        with database.transaction() as connection:
-            apply_agent_patch(connection, agent_id, proposal)
+        with config_store.batch() as write_config:
+            with database.transaction() as connection:
+                apply_agent_patch(connection, write_config, agent_id, proposal)
         return {"status": "updated", "agent": database.agent(agent_id)}
 
     @app.get("/api/v1/conversations")
@@ -236,16 +246,18 @@ def create_app(config_path: str | Path | None = None, db_path: str | Path | None
         members = list(dict.fromkeys(body.member_ids))
         if not body.name.strip() or len(body.name.strip()) > config["limits"]["max_group_name_chars"] or len(members) > config["limits"]["max_group_members"]:
             raise HTTPException(422, "invalid group name or member count")
-        if any(not database.agent(member) for member in members):
+        if any(not database.agent(member) or database.agent(member)["status"] != "active" for member in members):
             raise HTTPException(422, "group contains unknown agent")
         group_id = new_id()
         names = [database.agent(member)["name"] for member in members]
         group = {"id": group_id, "name": body.name.strip(), "role": "、".join(names), "icon": body.name.strip()[0],
-                 "color": config["ui"]["default_agent_color"], "ink": config["ui"]["default_agent_ink"], "members": members}
-        with database.transaction() as connection:
-            connection.execute("INSERT INTO groups VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                               (group_id, group["name"], group["role"], group["icon"], group["color"], group["ink"], json.dumps(members), utc_now()))
-            database.emit(connection, "group.created", {"group_id": group_id})
+                 "color": config["ui"]["default_agent_color"], "ink": config["ui"]["default_agent_ink"], "members": members, "status": "active"}
+        with config_store.batch() as write_config:
+            with database.transaction() as connection:
+                connection.execute("INSERT INTO groups VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                                   (group_id, group["name"], group["role"], group["icon"], group["color"], group["ink"], json.dumps(members), utc_now(), "active"))
+                write_config("teams", group)
+                database.emit(connection, "group.created", {"group_id": group_id})
         return group
 
     @app.get("/api/v1/conversations/{conversation_id}/messages")
@@ -261,7 +273,7 @@ def create_app(config_path: str | Path | None = None, db_path: str | Path | None
             raise HTTPException(422, "message is empty or too long")
         if conversation["kind"] == "assistant":
             task_id = new_id()
-            with database.transaction() as connection:
+            with config_store.batch() as write_config, database.transaction() as connection:
                 duplicate = connection.execute("SELECT id, task_id, conversation_id FROM messages WHERE client_message_id=?", (body.client_message_id,)).fetchone()
                 if duplicate:
                     if duplicate["conversation_id"] != conversation_id:
@@ -276,7 +288,7 @@ def create_app(config_path: str | Path | None = None, db_path: str | Path | None
                 for assignment in assignments:
                     agent_id = assignment.agent_id
                     if not agent_id:
-                        created = make_agent(connection, assignment.suggested_name, assignment.suggested_role, assignment.capability)
+                        created = make_agent(connection, write_config, assignment.suggested_name, assignment.suggested_role, assignment.capability)
                         agent_id = created["id"]
                         created_names.append(created["name"])
                         insert_message(connection, agent_id, "agent", created["name"], f"你好，我是{created['name']}。已准备好承担{assignment.title}。")
@@ -352,14 +364,14 @@ def create_app(config_path: str | Path | None = None, db_path: str | Path | None
     def decide(approval_id: str, body: DecisionInput):
         if body.decision not in {"approve", "reject"}:
             raise HTTPException(422, "invalid decision")
-        with database.transaction() as connection:
+        with config_store.batch() as write_config, database.transaction() as connection:
             row = connection.execute("SELECT * FROM approvals WHERE id=?", (approval_id,)).fetchone()
             if not row:
                 raise HTTPException(404, "approval not found")
             if row["status"] != "pending" or row["expires_at"] <= utc_now():
                 raise HTTPException(409, "approval is no longer pending")
             if body.decision == "approve":
-                apply_agent_patch(connection, row["agent_id"], json.loads(row["proposal"]))
+                apply_agent_patch(connection, write_config, row["agent_id"], json.loads(row["proposal"]))
             status = "approved" if body.decision == "approve" else "rejected"
             connection.execute("UPDATE approvals SET status=?, decided_at=? WHERE id=? AND status='pending'", (status, utc_now(), approval_id))
             insert_message(connection, row["conversation_id"], "system", "系统", "配置审批已通过。" if status == "approved" else "配置审批已拒绝。")
@@ -395,5 +407,5 @@ def create_app(config_path: str | Path | None = None, db_path: str | Path | None
                 await asyncio.sleep(config["server"]["event_poll_seconds"])
         return StreamingResponse(stream(), media_type="text/event-stream", headers={"Cache-Control": "no-cache"})
 
-    app.mount("/", StaticFiles(directory=ROOT / "frontend", html=True), name="frontend")
+    app.mount("/", StaticFiles(directory=str(WEB_DIRECTORY), html=True), name="frontend")
     return app

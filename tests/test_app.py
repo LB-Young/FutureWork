@@ -1,13 +1,14 @@
 from uuid import uuid4
+import tomllib
 
 from fastapi.testclient import TestClient
 
-from backend.app import create_app
-from backend.config import ROOT
+from futurework.app import create_app
+from futurework.config import DEFAULT_CONFIG
 
 
 def client(tmp_path):
-    return TestClient(create_app(db_path=tmp_path / "futurework.sqlite3"))
+    return TestClient(create_app(home=tmp_path / "home"))
 
 
 def send(test_client, conversation_id, text, message_id=None):
@@ -44,6 +45,9 @@ def test_missing_capability_creates_agent_with_safe_defaults(tmp_path):
     assert created[0]["approval"] is True
     task = test_client.get(f"/api/v1/tasks/{response.json()['task_id']}").json()
     assert task["steps"][0]["agent_id"] == created[0]["id"]
+    with (tmp_path / "home" / "agents" / f"{created[0]['id']}.toml").open("rb") as source:
+        assert tomllib.load(source)["capabilities"]["analysis.competitor"] > 0
+    assert any(agent["id"] == created[0]["id"] for agent in client(tmp_path).get("/api/v1/agents").json())
 
 
 def test_permission_expansion_requires_approval_and_is_single_use(tmp_path):
@@ -62,6 +66,8 @@ def test_permission_expansion_requires_approval_and_is_single_use(tmp_path):
     updated = test_client.get("/api/v1/agents/code").json()
     assert updated["tools"] == ["代码执行"]
     assert updated["version"] == original["version"] + 1
+    with (tmp_path / "home" / "agents" / "code.toml").open("rb") as source:
+        assert tomllib.load(source)["tools"] == ["代码执行"]
     assert test_client.post(f"/api/v1/approvals/{approval_id}/decision", json={"decision": "approve"}).status_code == 409
     assert test_client.get("/api/v1/inbox?view=approvals").json() == []
 
@@ -71,6 +77,8 @@ def test_group_routing_and_read_mark(tmp_path):
     new_group = test_client.post("/api/v1/groups", json={"name": "界面评审", "member_ids": ["design", "write"]})
     assert new_group.status_code == 201
     group_id = new_group.json()["id"]
+    with (tmp_path / "home" / "teams" / f"{group_id}.toml").open("rb") as source:
+        assert tomllib.load(source)["members"] == ["design", "write"]
     response = send(test_client, group_id, "@小绘 请看看新界面")
     assert response.status_code == 202
     messages = test_client.get(f"/api/v1/conversations/{group_id}/messages").json()
@@ -82,15 +90,15 @@ def test_group_routing_and_read_mark(tmp_path):
 
 
 def test_configured_model_completes_assigned_task(tmp_path, monkeypatch):
-    config_text = (ROOT / "config" / "app.toml").read_text()
+    config_text = DEFAULT_CONFIG.read_text()
     config_path = tmp_path / "app.toml"
     config_path.write_text(config_text.replace('provider = "mock"', 'provider = "openai_compatible"'))
 
     async def fake_response(agent, history, config):
         return f"{agent['name']} 的可交付初稿"
 
-    monkeypatch.setattr("backend.app.respond", fake_response)
-    test_client = TestClient(create_app(config_path=config_path, db_path=tmp_path / "model.sqlite3"))
+    monkeypatch.setattr("futurework.app.respond", fake_response)
+    test_client = TestClient(create_app(config_path=config_path, home=tmp_path / "home"))
     response = send(test_client, "assistant", "设计一个界面")
     task = test_client.get(f"/api/v1/tasks/{response.json()['task_id']}").json()
     assert task["status"] == "completed"
@@ -100,11 +108,27 @@ def test_configured_model_completes_assigned_task(tmp_path, monkeypatch):
 
 
 def test_agent_limit_rolls_back_assistant_request(tmp_path):
-    config_text = (ROOT / "config" / "app.toml").read_text()
+    config_text = DEFAULT_CONFIG.read_text()
     config_path = tmp_path / "app.toml"
     config_path.write_text(config_text.replace("max_agents = 30", "max_agents = 5"))
-    test_client = TestClient(create_app(config_path=config_path, db_path=tmp_path / "limited.sqlite3"))
+    test_client = TestClient(create_app(config_path=config_path, home=tmp_path / "home"))
     response = send(test_client, "assistant", "请做竞品分析")
     assert response.status_code == 409
     assert test_client.get("/api/v1/conversations/assistant/messages").json() == []
     assert len(test_client.get("/api/v1/agents").json()) == 5
+
+
+def test_user_agent_file_is_authoritative_after_restart(tmp_path):
+    test_client = client(tmp_path)
+    path = tmp_path / "home" / "agents" / "code.toml"
+    path.write_text(path.read_text().replace('role = "开发与自动化"', 'role = "Python 工程"\n# 手工备注'))
+    restarted = client(tmp_path)
+    assert restarted.get("/api/v1/agents/code").json()["role"] == "Python 工程"
+    current = restarted.get("/api/v1/agents/code").json()
+    patched = restarted.patch("/api/v1/agents/code", json={
+        "expected_version": current["version"], "model": current["model"],
+        "tools": [], "approval": True,
+    })
+    assert patched.status_code == 200
+    assert "# 手工备注" in path.read_text()
+    assert test_client.get("/api/v1/agents/code").json()["role"] == "Python 工程"

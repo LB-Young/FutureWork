@@ -1,0 +1,7 @@
+id = "weekly"
+name = "每周进展同步"
+role = "知知、阿码、程程"
+icon = "周"
+color = "#e8eafa"
+ink = "#7c81b4"
+members = ["research", "code", "plan"]

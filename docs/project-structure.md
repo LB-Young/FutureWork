@@ -1,10 +1,10 @@
 # FutureWork 工程目录设计
 
-状态：目标工程结构，尚未对当前可运行 MVP 做目录迁移。本文重点解决两个要求：**每位 Agent 好友、每个群聊各有一份配置文件**；**Agent 私聊与群聊拥有独立、可审计的上下文管理**。配置采用 TOML，与当前 Python 3.12 项目一致，避免引入 YAML 解析依赖。
+状态：以下是后续完整工程的目标结构。当前 MVP 已迁移为 `src/futurework/` 可安装包，默认配置在 `src/futurework/defaults/`，用户配置在 `~/.futurework/agents/` 和 `~/.futurework/teams/`，页面在 `src/futurework/web/`。下文的 `config/`、`backend/` 和 `frontend/` 目录树表达目标模块边界，并非现有路径。Agent 私聊与群聊的独立、可审计上下文管理仍待实现。
 
 ## 1. 核心原则
 
-1. **配置文件定义身份，数据库保存运行状态。** `config/agents/<id>.toml` 和 `config/groups/<id>.toml` 是 Agent 与群聊定义的权威来源。消息、任务、审批、摘要、记忆、未读数不能写回这些配置文件，存入数据库。
+1. **配置文件定义身份，数据库保存运行状态。** 当前 `~/.futurework/agents/<id>.toml` 和 `~/.futurework/teams/<id>.toml` 是 Agent 与群聊定义的来源。消息、任务、审批、未读数存入数据库；未来摘要与记忆按独立作用域存储。
 2. **一个 ID 对应一个配置文件。** 文件名、文件内 `id` 和数据库投影 ID 必须相同。Agent 与群聊各用自己的命名空间；不要用展示名称、数组下标或文件路径作为运行时主键。
 3. **上下文按作用域隔离。** 小未对话使用 `(workspace_id, assistant, assistant_id)`；Agent 私聊使用 `(workspace_id, agent, agent_id)`；群聊使用 `(workspace_id, group, group_id)`；任务使用短期作用域 `(workspace_id, task, task_id)`。
 4. **群成员共享群上下文，不共享私聊上下文。** Agent 在群聊中可用自身角色配置和该群的历史、摘要及共享记忆；不得自动读取自己与用户的私聊，也不得读取其他群的历史。
@@ -158,7 +158,7 @@ FutureWork/
         └── tools/<publisher>/<id>/<version>/
 ```
 
-这是**目标组织方式**。当前 MVP 的 `backend/app.py`、`backend/database.py` 和 `config/app.toml` 较集中；迁移时按业务边界拆开。`frontend/` 可先保留现有无构建页面，再逐步拆为组件，不要求一次性引入新框架。
+这是**目标组织方式**。当前 MVP 的 `src/futurework/app.py`、`src/futurework/database.py` 和 `~/.futurework/app.toml` 较集中；后续按业务边界拆开。现有无构建页面位于 `src/futurework/web/`。
 
 ## 3. 配置文件契约
 
