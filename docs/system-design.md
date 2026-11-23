@@ -139,7 +139,7 @@ Agent:       draft -> active -> paused -> archived
 
 ### 4.3 与当前原型的对应
 
-当前 `index.html`/`script.js` 是静态演示，内存中的 `agents`、`groups`、`activity`、`conversations` 将改为 API 查询。演示性关键词回复被 `POST /conversations/{id}/messages` 及异步任务事件替换。右侧不单独维护活动数组，而由会话最新消息、未读游标和待审批记录组成服务端 inbox 视图。
+当前 `frontend/index.html`/`frontend/script.js` 是静态演示，内存中的 `agents`、`groups`、`activity`、`conversations` 将改为 API 查询。演示性关键词回复被 `POST /conversations/{id}/messages` 及异步任务事件替换。右侧不单独维护活动数组，而由会话最新消息、未读游标和待审批记录组成服务端 inbox 视图。
 
 ## 5. Python 后端模块与接口
 
