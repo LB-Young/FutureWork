@@ -1,0 +1,6 @@
+{
+  "apiBase": "/api/v1",
+  "eventReconnectMs": 2500,
+  "eventRefreshMs": 150,
+  "toastDurationMs": 3000
+}

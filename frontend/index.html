@@ -34,6 +34,7 @@
           <button class="add-link" id="newAgentButton">＋ 创建 Agent 好友</button>
           <button class="section-header groups-header" id="groupsToggle" aria-expanded="true"><span>协作群聊 <em>03</em></span><span class="chevron">⌄</span></button>
           <div class="section-items" id="groupList"></div>
+          <button class="add-link" id="newGroupButton">＋ 创建协作群聊</button>
         </div>
         <div class="sidebar-footer"><span class="online-indicator"></span><div><strong>团队运行中</strong><small id="teamCount">5 位 Agent 正在协作</small></div><button class="footer-more" title="演示页面">···</button></div>
       </aside>
@@ -48,7 +49,7 @@
           <div class="composer-wrap">
             <div class="suggestions" id="suggestions"><button data-prompt="帮我整理本周项目进展">整理项目进展</button><button data-prompt="设计一个新产品的发布计划">制定发布计划</button><button data-prompt="帮我分析竞品并创建需要的 Agent">分析竞品</button></div>
             <form class="composer" id="messageForm"><button type="button" class="attach-button" title="附件展示" id="attachButton">＋</button><textarea id="messageInput" rows="1" placeholder="给小未发消息，或直接安排一个任务…" aria-label="输入消息"></textarea><button class="send-button" type="submit" aria-label="发送消息">↑</button></form>
-            <p class="composer-note">页面交互演示 · 消息和配置仅在当前页面会话中有效</p>
+            <p class="composer-note">本地开发版 · 消息和配置保存在本机数据库</p>
           </div>
         </section>
 
@@ -65,7 +66,8 @@
     <div class="overlay" id="overlay" hidden></div>
     <aside class="drawer" id="settingsDrawer" aria-label="Agent 能力配置" aria-hidden="true"><div class="drawer-header"><div><span class="eyebrow">AGENT SETTINGS</span><h2 id="drawerTitle">配置能力</h2></div><button class="icon-button" id="closeDrawer" aria-label="关闭">×</button></div><div class="drawer-body"><div class="drawer-agent"><div class="avatar" id="drawerAvatar"></div><div><strong id="drawerAgentName"></strong><small id="drawerAgentRole"></small></div><span class="ready-pill">● 运行中</span></div><div class="form-section"><h3>模型</h3><p>选择这个 Agent 使用的模型</p><select id="modelSelect" aria-label="模型"><option>GPT-5.1</option><option>Claude Sonnet 4.5</option><option>Gemini 3 Pro</option></select></div><div class="form-section"><h3>工具权限</h3><p>按需开放工具，变更只用于原型演示</p><div id="toolToggles"></div></div><div class="form-section"><h3>任务自主权</h3><p>执行重要操作前是否需要你审批</p><label class="setting-row"><span><strong>关键操作需要审批</strong><small>外部发送、发布和删除操作</small></span><input type="checkbox" id="approvalToggle" checked /><span class="switch"></span></label></div></div><div class="drawer-footer"><button class="primary-button" id="saveSettings">保存配置</button></div></aside>
     <div class="modal" id="createModal" role="dialog" aria-modal="true" aria-labelledby="modalTitle" hidden><div class="modal-card"><button class="icon-button modal-close" id="closeModal" aria-label="关闭">×</button><div class="modal-icon">✦</div><span class="eyebrow">BUILD YOUR TEAM</span><h2 id="modalTitle">创建 Agent 好友</h2><p>描述你想要的伙伴，个人助理会帮你组建团队。</p><label>Agent 名称<input id="newAgentName" placeholder="例如：数据分析师" maxlength="20" /></label><label>专长描述<input id="newAgentRole" placeholder="例如：负责数据整理与洞察" maxlength="40" /></label><div class="modal-actions"><button class="quiet-button" id="cancelCreate">取消</button><button class="primary-button" id="confirmCreate">创建 Agent</button></div></div></div>
+    <div class="modal" id="groupModal" role="dialog" aria-modal="true" aria-labelledby="groupModalTitle" hidden><div class="modal-card"><button class="icon-button modal-close" id="closeGroupModal" aria-label="关闭">×</button><div class="modal-icon">▧</div><span class="eyebrow">TEAM COLLABORATION</span><h2 id="groupModalTitle">创建协作群聊</h2><p>选择至少一位 Agent，群聊中的消息由成员共同查看。</p><label>群聊名称<input id="newGroupName" placeholder="例如：新产品发布小组" maxlength="40" /></label><div id="groupMemberList"></div><div class="modal-actions"><button class="quiet-button" id="cancelGroupCreate">取消</button><button class="primary-button" id="confirmGroupCreate">创建群聊</button></div></div></div>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="script.js"></script>
+    <script src="app.js"></script>
   </body>
 </html>

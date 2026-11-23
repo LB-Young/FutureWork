@@ -1,0 +1,189 @@
+[server]
+host = "127.0.0.1"
+port = 8000
+database_path = "data/futurework.sqlite3"
+event_poll_seconds = 0.8
+event_heartbeat_seconds = 15
+event_batch_size = 100
+message_history_limit = 100
+
+[ui]
+assistant_name = "小未"
+assistant_role = "个人助理"
+recent_limit = 6
+suggestions = ["帮我整理本周项目进展", "设计一个新产品的发布计划", "帮我分析竞品并创建需要的 Agent"]
+default_agent_color = "#e0f1e9"
+default_agent_ink = "#398d73"
+
+[limits]
+max_message_chars = 4000
+max_agent_name_chars = 20
+max_agent_role_chars = 80
+max_agents = 30
+max_plan_steps = 6
+max_group_name_chars = 40
+max_group_members = 12
+approval_ttl_hours = 24
+
+[matching]
+minimum_proficiency = 0.70
+minimum_score = 0.58
+required_weight = 0.55
+success_weight = 0.20
+load_weight = 0.15
+cost_weight = 0.10
+default_success = 0.70
+default_load = 0.20
+default_cost = 0.30
+auto_agent_proficiency = 0.85
+
+[model]
+provider = "mock"
+api_url = "https://api.openai.com/v1/chat/completions"
+api_key_env = "FUTUREWORK_MODEL_API_KEY"
+default_model = "gpt-4.1-mini"
+available_models = ["gpt-4.1-mini", "gpt-4.1", "claude-sonnet-4-5", "gemini-3-pro"]
+timeout_seconds = 30
+temperature = 0.4
+max_output_tokens = 600
+system_prompt = "你是 FutureWork 团队中的 Agent。只回答当前任务，明确说明尚未执行的工作，不要声称调用了没有提供的工具。"
+mock_reply = "已记录你的消息。当前使用本地演示模型，尚未执行外部工具；配置模型 API 后可以生成实际回复。"
+
+[permissions]
+available_tools = ["网页搜索", "文件读取", "代码执行", "图像生成", "日历访问", "外部发送"]
+safe_default_tools = []
+approval_required_tools = ["代码执行", "外部发送", "文件读取", "日历访问"]
+
+[execution]
+run_assigned_steps_with_model = true
+step_instruction = "请处理以下子任务并给出可交付的初稿。不能声称访问了未提供的外部工具、文件或实时数据。"
+
+[[planner.rules]]
+capability = "analysis.competitor"
+keywords = ["竞品", "竞争对手", "市场分析", "数据分析"]
+title = "竞品与市场分析"
+agent_name = "数数"
+agent_role = "数据分析与竞品洞察"
+
+[[planner.rules]]
+capability = "design.visual"
+keywords = ["设计", "视觉", "界面", "UI"]
+title = "产品与视觉设计"
+agent_name = "小绘"
+agent_role = "产品与视觉设计"
+
+[[planner.rules]]
+capability = "writing.copy"
+keywords = ["文案", "写作", "内容", "发布"]
+title = "内容与文案"
+agent_name = "言言"
+agent_role = "内容与文案"
+
+[[planner.rules]]
+capability = "engineering.code"
+keywords = ["代码", "脚本", "开发", "自动化"]
+title = "开发与自动化"
+agent_name = "阿码"
+agent_role = "开发与自动化"
+
+[[planner.rules]]
+capability = "research.web"
+keywords = ["调研", "搜索", "资料", "研究"]
+title = "研究与资料整理"
+agent_name = "知知"
+agent_role = "研究与洞察"
+
+[[planner.rules]]
+capability = "planning.schedule"
+keywords = ["计划", "进展", "日程", "项目", "安排"]
+title = "项目计划与跟进"
+agent_name = "程程"
+agent_role = "项目与日程"
+
+[planner.fallback]
+capability = "planning.general"
+title = "需求梳理"
+agent_name = "程程"
+agent_role = "项目与日程"
+
+[[agents.seed]]
+id = "research"
+name = "知知"
+role = "研究与洞察"
+icon = "知"
+color = "#e7e8fa"
+ink = "#7873ad"
+capabilities = { "research.web" = 0.95 }
+tools = []
+model = "gpt-4.1-mini"
+
+[[agents.seed]]
+id = "design"
+name = "小绘"
+role = "产品与视觉设计"
+icon = "绘"
+color = "#fae7dd"
+ink = "#c28464"
+capabilities = { "design.visual" = 0.95 }
+tools = []
+model = "gpt-4.1-mini"
+
+[[agents.seed]]
+id = "code"
+name = "阿码"
+role = "开发与自动化"
+icon = "码"
+color = "#dcebea"
+ink = "#4e9c91"
+capabilities = { "engineering.code" = 0.95 }
+tools = []
+model = "gpt-4.1-mini"
+
+[[agents.seed]]
+id = "write"
+name = "言言"
+role = "内容与文案"
+icon = "言"
+color = "#f6e6ef"
+ink = "#ae7795"
+capabilities = { "writing.copy" = 0.95 }
+tools = []
+model = "gpt-4.1-mini"
+
+[[agents.seed]]
+id = "plan"
+name = "程程"
+role = "项目与日程"
+icon = "程"
+color = "#e9eddd"
+ink = "#8a9d65"
+capabilities = { "planning.schedule" = 0.95, "planning.general" = 0.90 }
+tools = []
+model = "gpt-4.1-mini"
+
+[[groups.seed]]
+id = "launch"
+name = "产品发布小组"
+role = "小绘、言言、程程"
+icon = "发"
+color = "#e4ede7"
+ink = "#398769"
+members = ["design", "write", "plan"]
+
+[[groups.seed]]
+id = "weekly"
+name = "每周进展同步"
+role = "知知、阿码、程程"
+icon = "周"
+color = "#e8eafa"
+ink = "#7c81b4"
+members = ["research", "code", "plan"]
+
+[[groups.seed]]
+id = "ideas"
+name = "灵感碰撞室"
+role = "知知、小绘、言言"
+icon = "灵"
+color = "#f7eae0"
+ink = "#bd8660"
+members = ["research", "design", "write"]
