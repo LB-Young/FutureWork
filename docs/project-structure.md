@@ -25,6 +25,7 @@ FutureWork/
 │   ├── tools.toml                   # 工具注册表、风险等级、默认审批策略
 │   ├── matching.toml                # 匹配权重、阈值、负载与成本参数
 │   ├── planner.toml                 # 任务拆解约束、能力词典、回退规则
+│   ├── runtime.toml                 # 单次运行的循环、超时、并发、重试与预算上限
 │   ├── context.toml                 # 全局上下文预算、摘要、检索和保留策略
 │   ├── agents/
 │   │   ├── assistant.toml           # 小未；特殊 Agent，仍遵循同一配置 schema
@@ -75,6 +76,13 @@ FutureWork/
 │   │   ├── summarizer.py            # 增量摘要、回溯来源
 │   │   ├── retrieval.py             # 按作用域检索；不得跨域默认搜索
 │   │   └── policy.py                # 显式分享、保留与删除规则
+│   ├── runtime/
+│   │   ├── engine.py                # 所有 Agent 共用的推理/工具执行循环
+│   │   ├── run_spec.py              # Agent 配置版本、作用域、任务和预算快照
+│   │   ├── factory.py               # 将 TOML 配置装配为一次运行实例
+│   │   ├── orchestrator.py          # 小未专有的规划、分派、汇总扩展
+│   │   ├── checkpoints.py           # 运行状态持久化、恢复和取消
+│   │   └── tool_dispatch.py         # 工具授权、审批与调用入口
 │   ├── services/
 │   │   ├── agent_service.py          # 创建配置、审批、激活、版本切换
 │   │   ├── group_service.py          # 创建群、成员变更、上下文初始化
@@ -158,6 +166,10 @@ share_to_groups = "explicit_only"
 [limits]
 max_concurrent_tasks = 2
 daily_token_budget = 100000
+
+[runtime]
+profile = "standard"                 # 引用 runtime.toml；小未可用 orchestrator
+max_turns = 8                         # 只能在全局硬上限内覆盖
 ```
 
 `assistant.toml` 使用相同 schema，增加 `kind = "assistant"`、`system = true` 和规划权限；系统内恰好一个 assistant。`prompt_file` 的相对路径只能落在 `config/prompts/` 内。小型 Agent 可直接用 TOML 的 `system_prompt` 字段；长提示词用独立 Markdown 文件，仍由该 Agent 配置文件引用。
@@ -201,6 +213,37 @@ external_share = "approval_required"
 `app.toml` 只放全局运行参数；模型、工具、匹配、上下文各有专用文件。**生效值 = 全局默认值 → 作用域配置覆盖 → 任务级限制收紧**。任务只能收紧限额或权限，不得扩大 Agent/群权限。敏感配置（模型 API key、数据库凭证）由环境变量或密钥管理器注入；TOML 只存环境变量名称/密钥引用。
 
 文件解析使用 `tomllib`，Pydantic schema 设置 `extra = "forbid"`，避免拼写错误被静默忽略。校验必须覆盖：schema 版本、文件名与 ID 一致、ID 唯一、模型/工具/能力引用有效、成员关系有效、上下文预算为正、风险策略不弱于全局下限、提示词路径不能越界。配置通过校验后计算内容哈希并存入 `config_versions`；热更新只对新任务生效。
+
+### 3.4 配置如何变成 Agent Runtime
+
+**共用同一个 Runtime 引擎实现，但不共用同一个运行实例或上下文。** Agent 好友与小未都由 `runtime/factory.py` 根据配置版本构建 `RunSpec`，交给 `runtime/engine.py` 的同一套执行循环。每次消息/任务启动一个 `AgentRun`；其状态（当前步骤、模型用量、工具调用、审批等待、取消标记）按 `run_id` 持久化。worker 可复用进程，不需要为每位好友常驻一个 Python 进程，也不能把历史记录放在全局单例对象里。
+
+```text
+Agent TOML + 配置版本 + ScopeKey + Task/Message
+  -> RuntimeFactory.build_run_spec(...)
+  -> AgentRuntime.run(run_spec)
+       -> ContextAssembler 按作用域取上下文
+       -> ModelGateway 生成回复或工具意图
+       -> ToolDispatch 检查 Agent 授权、资源范围与审批
+       -> Checkpoint 保存运行状态和结果
+```
+
+| 维度 | 普通 Agent 好友 | 小未（assistant） |
+| --- | --- | --- |
+| 执行核心 | `AgentRuntime` | 同一个 `AgentRuntime` |
+| 配置来源 | `config/agents/<id>.toml` | `config/agents/assistant.toml` |
+| 默认上下文 | 该好友的私聊作用域 | 小未自己的私聊作用域 |
+| 能力扩展 | 其 TOML 声明的专长和已授权工具 | 额外装配 `orchestrator.py` 的规划、匹配、分派、汇总能力 |
+| 权限 | 仅本 Agent 授权与当前任务数据范围 | 可查看任务状态与获准分享的产物；不能绕开其他 Agent 的私聊权限 |
+| 运行状态 | 独立 `run_id`、预算、checkpoint | 独立 `run_id`、预算、checkpoint，通常创建并跟踪子任务 |
+
+小未不是另写一套模型循环，而是**同一引擎 + 不同的能力配置和编排扩展**。编排扩展只能生成任务计划、选择 Agent、创建配置草案和汇总结果；每项仍经过 `domain/permissions.py` 与用户审批。普通 Agent 不能仅凭提示词宣称自己具有小未的分派能力。
+
+群聊也**不创建一个能绕过成员权限的“群 Agent Runtime”**。`GroupContextService` 管理共享上下文；`reply.strategy` 选出发言的 Agent，然后用该 Agent 的配置版本运行同一个引擎，传入 `(workspace_id, group, group_id)`。如果发言者是小未，则装配小未的编排扩展，但可见数据仍限于该群与明确共享的任务产物。多个 Agent 回复时每人有独立 `run_id` 和预算，群配置控制最大并发及发言顺序。
+
+`runtime.toml` 负责全局的最大循环次数、模型超时、重试、并发、token/费用硬上限和 checkpoint 周期；每位 Agent TOML 可在硬上限内收紧或选择 profile。`RunSpec` 固定 `agent_config_version`、`group_config_version?`、`scope_key`、`context_cursor`、`task_id?` 和有效权限快照。权限变化只影响新运行；已暂停的运行恢复时还须重新检查敏感工具授权与审批有效期。
+
+**当前 MVP 现状：** `backend/app.py` 的 `send_message` / `execute_task` 与 `backend/model.py` 的 `respond` 是简化执行路径，还没有统一 `AgentRuntime`、可恢复 checkpoint 或独立上下文服务。上面的目录是下一阶段实施目标，不应把现有简化路径误认为已经具备完整 Runtime。
 
 ## 4. 独立上下文模型
 
@@ -274,7 +317,7 @@ sequenceDiagram
 
 1. **先拆配置，不改 API 行为。** 将 `config/app.toml` 中 `[[agents.seed]]`、`[[groups.seed]]` 原样移至单独 TOML，保留 `research/design/code/write/plan` 和 `launch/weekly/ideas` ID。`bootstrap.py` 读目录，校验后向现有数据库投影；为旧数据库增加 `config_version`、`config_hash`。先让测试同时验证旧消息不丢失。
 2. **再引入类型化上下文。** 给现有 `messages` 和 `read_marks` 增加 `scope_type`、`scope_id`、`workspace_id`；迁移 `assistant` 和 Agent ID 为 `agent` 类型，群 ID 为 `group` 类型。建立联合索引，所有查询改用 `ScopeKey`。检查无同名 ID 混淆和跨群读取。
-3. **拆分服务。** 从当前 `backend/app.py` 提取 API、Agent/Group 服务、上下文服务和任务服务；`backend/algorithm.py` 拆成匹配与规划模块。保持现有 REST 契约和前端路径不变，避免一次迁移引入多种变量。
+3. **拆分服务并建立 Runtime。** 从当前 `backend/app.py` 提取 API、Agent/Group 服务、上下文服务和任务服务；`backend/algorithm.py` 拆成匹配与规划模块。将 `respond` 和 `execute_task` 收敛到共用的 `AgentRuntime`，由 `assistant.toml` 装配编排扩展。保持现有 REST 契约和前端路径不变，避免一次迁移引入多种变量。
 4. **实现配置写入闭环。** 手动创建、由小未创建、群聊创建及配置编辑都走同一个 writer + validator；高风险草案先审批。增加文件与投影对账、版本冲突和崩溃恢复测试。
 5. **最后替换运行基础设施。** 按 [系统设计](system-design.md) 引入 PostgreSQL、持久队列、用户鉴权和工具沙箱；上下文作用域与配置契约无需再改。
 
