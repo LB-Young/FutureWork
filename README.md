@@ -31,3 +31,5 @@ uv run python -m backend
 - 此版仅绑定本机、未实现账号鉴权、多用户隔离、后台队列和生产级工具沙箱，不能直接对公网部署。
 
 完整目标架构见 [系统设计文档](docs/system-design.md)。
+
+逐文件配置 Agent/群聊及独立上下文的目标目录见 [工程目录设计](docs/project-structure.md)。
