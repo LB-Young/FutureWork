@@ -27,6 +27,7 @@ FutureWork/
 │   ├── planner.toml                 # 任务拆解约束、能力词典、回退规则
 │   ├── runtime.toml                 # 单次运行的循环、超时、并发、重试与预算上限
 │   ├── context.toml                 # 全局上下文预算、摘要、检索和保留策略
+│   ├── extensions.toml              # 扩展来源、安装目录、信任策略和资源限额
 │   ├── agents/
 │   │   ├── assistant.toml           # 小未；特殊 Agent，仍遵循同一配置 schema
 │   │   ├── research.toml            # 知知
@@ -41,6 +42,25 @@ FutureWork/
 │   └── prompts/
 │       ├── assistant.md
 │       └── agents/                  # 可选长提示词；由 Agent TOML 显式引用
+├── extensions/
+│   ├── builtin/                    # 随应用版本发布；代码审查后入库
+│   │   ├── tools/
+│   │   │   ├── calculator/
+│   │   │   │   ├── manifest.toml    # ID、版本、参数 schema、风险和入口
+│   │   │   │   └── handler.py       # Python 工具实现
+│   │   │   └── web_search/          # 受控搜索接口；凭证来自密钥管理层
+│   │   ├── skills/
+│   │   │   └── research-brief/
+│   │   │       ├── manifest.toml    # 依赖、适用 Runtime、输入和资源声明
+│   │   │       ├── SKILL.md         # Agent 使用说明
+│   │   │       └── resources/       # 可选模板与静态资料
+│   │   ├── mcp/
+│   │   │   └── example-server/
+│   │   │       └── manifest.toml    # MCP 连接/启动定义，不含凭证
+│   │   └── workflows/
+│   │       └── product-launch/
+│   │           └── workflow.toml   # 声明式步骤、依赖和审批点
+│   └── schemas/                    # 扩展包 manifest、工具输入、workflow schema
 ├── backend/
 │   ├── __main__.py                  # 从 app.toml 读取监听配置并启动
 │   ├── bootstrap.py                 # 加载、校验全部配置并建立数据库投影
@@ -86,6 +106,13 @@ FutureWork/
 │   │   ├── run_spec.py              # 配置版本、上下文作用域、任务和预算快照
 │   │   ├── checkpoints.py           # 运行状态持久化、恢复和取消
 │   │   └── tool_dispatch.py         # 工具授权、审批与调用入口
+│   ├── extension_system/
+│   │   ├── registry.py              # 内置与已安装扩展的统一索引、版本固定
+│   │   ├── installer.py             # 下载/导入、校验、暂存、原子安装与回滚
+│   │   ├── resolver.py              # 为一次 Runtime 运行解析允许的扩展快照
+│   │   ├── skill_loader.py          # 加载 SKILL.md 与资源，不隐式执行代码
+│   │   ├── mcp_client.py            # MCP 发现、连接、schema 与超时控制
+│   │   └── workflow_runner.py       # 校验并调度声明式工作流 DAG
 │   ├── services/
 │   │   ├── agent_service.py          # 创建配置、审批、激活、版本切换
 │   │   ├── group_service.py          # 创建群、成员变更、上下文初始化
@@ -93,8 +120,7 @@ FutureWork/
 │   │   ├── task_service.py           # 规划、分派、执行、汇总
 │   │   └── inbox_service.py          # 最近动态/全部/待审批读模型
 │   ├── integrations/
-│   │   ├── model_gateway.py          # 供应商协议与适配器
-│   │   └── tools/                   # 工具注册、沙箱、外部服务适配器
+│   │   └── model_gateway.py          # 供应商协议与适配器
 │   ├── persistence/
 │   │   ├── models.py                # SQLAlchemy 表
 │   │   ├── repositories/            # Agent、Group、Context、Task 等仓储
@@ -119,11 +145,17 @@ FutureWork/
 │   ├── config/                     # 文件 schema、引用和热更新测试
 │   ├── contexts/                   # 私聊/群聊隔离测试
 │   ├── domain/                     # 匹配、DAG、权限纯函数测试
+│   ├── extensions/                 # 安装、依赖、授权、版本与沙箱测试
 │   ├── api/                        # 契约与幂等测试
 │   └── e2e/                        # 页面主流程
 ├── scripts/                        # 开发启动、导入、备份和配置检查
 ├── docs/                           # 架构、接口、运维与迁移方案
 └── data/                           # 本地运行数据；gitignored
+    └── extensions/                 # 运行时安装的扩展；生产环境改为持久卷/对象存储
+        ├── skills/<publisher>/<id>/<version>/
+        ├── mcp/<publisher>/<id>/<version>/
+        ├── workflows/<publisher>/<id>/<version>/
+        └── tools/<publisher>/<id>/<version>/
 ```
 
 这是**目标组织方式**。当前 MVP 的 `backend/app.py`、`backend/database.py` 和 `config/app.toml` 较集中；迁移时按业务边界拆开。`frontend/` 可先保留现有无构建页面，再逐步拆为组件，不要求一次性引入新框架。
@@ -155,9 +187,14 @@ temperature = 0.4                   # 覆盖全局默认值；可省略
 "analysis.summary" = 0.80
 
 [permissions]
-tools = ["web_search"]
+tools = ["builtin/web_search@1.0.0"]
 approval_policy = "standard"       # 引用 tools.toml 中的策略
 data_scopes = ["user_shared_files"]
+
+[extensions]
+skills = ["builtin/research-brief@1.0.0"]
+mcp_servers = []
+workflows = []
 
 [context]
 private_memory = true
@@ -207,6 +244,11 @@ history_visibility = "since_joined"
 [permissions]
 allow_member_tools = true             # 不授予新权限；仍以各 Agent 的授权为上限
 external_share = "approval_required"
+
+[extensions]
+skills = []                            # 群共享操作说明，不扩大成员工具权限
+workflows = ["builtin/product-launch@1.0.0"]
+mcp_allowlist = []                     # 群可用连接上限；成员仍须独立授权
 ```
 
 群配置只引用成员 ID，不复制成员的模型、能力或工具授权。成员不存在、处于 archived 状态、重复、或 `facilitator_agent_id` 不符合回复策略时，启动校验失败。群聊的 `allow_member_tools` 仅表示群内是否允许发起工具请求，不能覆盖 Agent 自身权限和用户对资源的授权。
@@ -246,6 +288,55 @@ external_share = "approval_required"
 `runtime.toml` 统一定义最大循环次数、超时、重试、并发、token/费用硬上限和 checkpoint 周期；Agent TOML、群 TOML 只能在硬上限内收紧。`RunSpec` 固定 `agent_config_version?`、`group_config_version?`、`scope_key`、`context_cursor`、`task_id?` 和权限快照。权限变化只影响新运行；已暂停运行恢复时仍需重新检查敏感工具授权和审批有效期。
 
 **当前 MVP 现状：** `backend/app.py` 的 `send_message` / `execute_task` 和 `backend/model.py` 的 `respond` 是简化路径，目前没有这三个独立 Runtime、群成员子执行记录或可恢复 checkpoint。这是下一阶段需要实施的结构。
+
+### 3.5 Tool、Skill、MCP 与 Workflow 扩展目录
+
+`extensions/builtin/` 放随应用发布且经过代码审查的内置扩展；`data/extensions/` 放用户后续安装的版本化扩展（本地开发路径，生产应为独立持久卷或扩展仓库）。两者由 `extension_system/registry.py` 统一索引，但**安装、启用、授予 Agent/群使用权**是三个独立动作。安装成功不等于自动进入任意 Agent 的上下文或获得工具权限。
+
+| 类型 | 目录内容 | 谁调用 / 关键边界 |
+| --- | --- | --- |
+| Tool | `manifest.toml` + Python handler、输入/输出 schema、风险等级 | `AgentExecutor` 经 `ToolDispatch` 调用；实际权限由 Agent 配置、资源作用域和审批共同决定 |
+| Skill | `manifest.toml` + `SKILL.md` + 可选静态资源 | 在适用 Runtime 中按需加载为方法说明；Skill 文本本身不能授予工具、MCP 或文件访问权 |
+| MCP | 服务器连接/启动 manifest、可发现工具 schema、超时与资源限制 | `mcp_client.py` 建立连接；每个 MCP 工具仍进入统一 ToolDispatch 授权与审计链 |
+| Workflow | `workflow.toml` + 可选模板、步骤 schema | `workflow_runner.py` 校验 DAG 后调度；步骤指向 Agent/能力/工具/审批点，不能直接绕过 Runtime |
+
+扩展引用统一采用 `publisher/id@version`，类型由配置字段区分，例如 `skills = ["builtin/research-brief@1.0.0"]`。运行开始时将解析结果及内容哈希固定在 `RunSpec`；任务执行中升级扩展不改变该次运行。配置引用不存在、版本不兼容、依赖缺失或风险策略被降低时，配置发布失败。
+
+**安装流程：** 从批准的来源获取包 → 暂存目录 → 校验 manifest/schema、内容哈希、版本与依赖 → 列出所需权限和可执行代码 → 用户审批高风险扩展 → 原子安装到 `data/extensions/<type>/<publisher>/<id>/<version>/` → 登记版本 → 由用户显式启用并分配到 Agent/群配置。更新安装新版本，不覆盖旧版本；支持回滚和停用。外部包默认不自动更新。
+
+`config/extensions.toml` 集中管理允许的来源、安装根目录、签名/哈希要求、最大包大小、MCP 连接超时、子进程 CPU/内存/网络限制、默认禁用策略和更新策略。MCP 凭证只存密钥管理层，manifest 存环境变量名或凭证引用。来自第三方的 Python Tool 或本地 MCP 进程必须在隔离环境执行；未经审查的 Skill 附带脚本不能因为读取 `SKILL.md` 就运行。
+
+**三种 Runtime 的用法：** `AssistantRuntime` 可提议安装 Skill/MCP/Workflow，并按获准配置调用规划类 Skill 和 Workflow；`DirectChatRuntime` 只解析该好友配置中启用的扩展；`GroupChatRuntime` 解析群级 Workflow/共享 Skill，再按成员各自权限解析 Tool/MCP。群配置的允许列表是上限，不会把某成员缺少的权限补给他。Workflow 步骤通过三种 Runtime 或任务 worker 调用 `AgentExecutor`，所有外部副作用均需对应审批。
+
+第一批内置扩展建议保持小而可验证：Tool 提供计算器与受控网页搜索；Skill 提供任务拆解、研究简报、文案审校；Workflow 提供每周进展汇总和产品发布准备；MCP 先提供连接模板与客户端适配，实际外部服务器由用户连接后启用。每个内置包仍有独立 manifest、版本和测试，不把全部实现塞进一个 `tools.py`。
+
+Workflow 使用声明式 DAG，例如：
+
+```toml
+schema_version = 1
+id = "product-launch"
+version = "1.0.0"
+entry = "research"
+
+[[steps]]
+id = "research"
+kind = "agent_task"
+capability = "research.web"
+depends_on = []
+
+[[steps]]
+id = "design"
+kind = "agent_task"
+capability = "design.visual"
+depends_on = ["research"]
+
+[[steps]]
+id = "review"
+kind = "approval"
+depends_on = ["design"]
+```
+
+加载器校验无环、步骤数与成本上限、能力/扩展引用和审批点；`approval` 步骤只能等待用户决定，不能由 Skill 文本或模型输出自动标记为通过。
 
 ## 4. 独立上下文模型
 
@@ -325,7 +416,8 @@ sequenceDiagram
 2. **再引入类型化上下文。** 给现有 `messages` 和 `read_marks` 增加 `scope_type`、`scope_id`、`workspace_id`；迁移 `assistant` 为 `assistant` 类型、普通 Agent ID 为 `agent` 类型、群 ID 为 `group` 类型。建立联合索引，所有查询改用 `ScopeKey`。检查无同名 ID 混淆和跨群读取。
 3. **拆分服务并建立三种 Runtime。** 从当前 `backend/app.py` 提取 API、Agent/Group 服务、上下文服务和任务服务；`backend/algorithm.py` 拆成匹配与规划模块。按会话类型实现 `AssistantRuntime`、`DirectChatRuntime`、`GroupChatRuntime`，将共同的模型/工具循环收敛到 `AgentExecutor`。保持现有 REST 契约和前端路径不变，避免一次迁移引入多种变量。
 4. **实现配置写入闭环。** 手动创建、由小未创建、群聊创建及配置编辑都走同一个 writer + validator；高风险草案先审批。增加文件与投影对账、版本冲突和崩溃恢复测试。
-5. **最后替换运行基础设施。** 按 [系统设计](system-design.md) 引入 PostgreSQL、持久队列、用户鉴权和工具沙箱；上下文作用域与配置契约无需再改。
+5. **建立扩展注册与安装链。** 先实现内置 Tool/Skill/Workflow 的 manifest 校验和 Runtime 解析，再接 MCP 客户端；第三方安装须完成暂存、校验、权限审批、版本固定和隔离执行。
+6. **最后替换运行基础设施。** 按 [系统设计](system-design.md) 引入 PostgreSQL、持久队列、用户鉴权和工具沙箱；上下文作用域与配置契约无需再改。
 
 ## 7. 必须通过的隔离测试
 
@@ -335,4 +427,6 @@ sequenceDiagram
 - 小未把私聊产物分享至群 X 时，只能看到指定产物，撤销后检索结果中消失。
 - 同时编辑同一 Agent 配置，旧 `expected_config_version` 必须返回冲突；旧审批不能激活新草案。
 - 配置文件缺失、ID 与文件名不一致、群成员不存在、工具未注册、提示词路径越界，启动或发布必须失败且 active 版本保持不变。
+- 安装 Skill 不得自动授予其声明的 Tool/MCP；未授权的 MCP 工具调用必须被 `ToolDispatch` 拒绝并写审计事件。
+- 扩展升级后旧任务继续使用原版本；停用、回滚和依赖缺失不得让运行中的 Workflow 静默切换实现。
 - 重启服务后从文件重建数据库投影，原有消息、审批和上下文摘要仍属于原作用域。
