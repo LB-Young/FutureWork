@@ -2,7 +2,7 @@
 
 状态：目标架构与首个可运行版本。当前开发分支已接通用户目录配置、SQLite 消息和任务、多平台文本模型网关、小未分派、Agent 私聊、两种群聊模式、显式启用的 Skill 文本加载，以及计算和工作区文件检索四种内置工具。Workflow、MCP、其他内置工具的执行与完整记忆检索仍属于后续阶段。此前的实验性实现保留在 `feat/user-home-package` 分支供参考。
 
-参考 Bamboo 后，当前执行入口会把数据库/TOML 记录转换为 `AgentRun` 对象；模型网关使用 `ModelRequest` 与 `ModelResult`，工具调度使用 `ToolRequest` 与 `ToolResult`。这些对象跨运行层传递，配置文件和 HTTP/SQLite 边界仍用原生映射。新用户目录预置 DeepSeek、Kimi、MiniMax、MiMo、GPT、Claude、阿里云千问、智谱、OpenRouter、Ollama 和 vLLM 的文本模型别名。图像/视频模型、自定义非 OpenAI HTTP 协议及 Bamboo 的其他默认工具尚未实现，不能仅凭配置项认为可用。
+参考 Bamboo 后，当前执行入口会把数据库/TOML 记录转换为 `AgentRun` 对象；模型网关使用 `ModelRequest` 与 `ModelResult`，工具调度使用 `ToolRequest` 与 `ToolResult`。这些对象跨运行层传递，配置文件和 HTTP/SQLite 边界仍用原生映射。新用户目录预置 DeepSeek、Kimi、MiniMax、MiMo、GPT、Claude、阿里云千问、智谱、OpenRouter、Ollama、vLLM，以及 Bamboo 风格公司 HTTP 代理的文本模型别名。图像/视频模型、其他任意自定义 HTTP 协议及 Bamboo 的其他默认工具尚未实现，不能仅凭配置项认为可用。
 
 ## 1. 核心原则
 
@@ -364,7 +364,7 @@ supports_tools = true
 supports_streaming = true
 ```
 
-平台实例可用多个别名复用。`model_id` 与 `remote_id` 不应混用：本项目用 `models.<alias>` 作为稳定引用，`remote_id` 原样传给平台。实际端点、模型 ID、价格、上下文限制与功能支持均由用户按账户和平台文档配置并校验；示例不承诺特定模型长期可用。
+平台实例可用多个别名复用。`model_id` 与 `remote_id` 不应混用：本项目用 `models.<alias>` 作为稳定引用，普通适配器将 `remote_id` 发给平台；`http_provider` 为兼容 Bamboo，会去掉其开头的 `local_`。实际端点、模型 ID、价格、上下文限制与功能支持均由用户按账户和平台文档配置并校验；示例不承诺特定模型长期可用。
 
 | 平台实例类型 | 目标适配器 | 关键差异 |
 | --- | --- | --- |
@@ -372,6 +372,7 @@ supports_streaming = true
 | 阿里云百炼、DeepSeek、Kimi、MiniMax | `openai_chat.py` + 各自的 profile；确有协议差异时增加平台适配器 | 优先用官方兼容端点；按平台分别校验端点、模型 ID、参数、鉴权、错误和 usage，不在业务层写平台分支 |
 | OpenRouter 等第三方聚合平台 | `openai_chat.py` + 平台元数据 | 远端模型 ID 可能含供应商前缀；上游实际供应商、地域及价格需要记录，敏感数据路由受策略限制 |
 | Anthropic Claude | `anthropic.py` | Messages API、`x-api-key`/版本头、独立 system 与 content block；工具结果和停止原因单独映射 |
+| 公司 HTTP 模型代理 | `http_provider.py` | 向完整配置 URL 发 POST；外层 `model`、`request`、`timeout`；兼容 `result` 包裹的响应与业务状态字段，端点和密钥使用环境变量 |
 
 `ModelGateway.generate(ModelRequest) -> ModelResult` 是唯一模型入口。请求包括别名、消息与内容块、工具 schema、流式开关、作用域、截止时间和 token/费用预算；结果统一文本、工具调用、usage、结束原因、平台 request ID 与错误类别。适配器只做协议转换、鉴权头与响应解析；网关负责路由、并发/速率限制、审计、用量与费用核算。模型参数先取全局默认，再应用平台限制和 Agent 覆盖；调用前检查 `supports_tools`、`supports_streaming`、上下文窗口及预算，不能把不支持的能力硬塞进请求。
 

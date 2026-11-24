@@ -23,7 +23,7 @@ FutureWork 是一个可以在本机安装和运行的 Agent 团队应用。界�
 | 个人助理 | 「小未」区分聊天和任务；任务按配置的关键词拆分、匹配 Agent，缺少对应能力时创建 Agent 配置并分派。 |
 | Agent 好友 | 每位好友由独立 TOML 定义，拥有自己的模型、能力、工具授权和私聊历史。 |
 | 群聊 | `swarm` 模式由成员轮流响应；`controlled` 模式由小未选择成员，必要时汇总多人回复。群聊读取本群自己的历史。 |
-| 模型 | 支持 OpenAI 兼容的文本接口和 Anthropic Messages 接口；预置多家云平台与 Ollama、vLLM 本地部署示例。只有选中的模型才需要可用。 |
+| 模型 | 支持 OpenAI 兼容文本接口、Anthropic Messages 接口，以及 Bamboo 风格的公司 HTTP 模型代理；预置多家云平台与本地部署示例。只有选中的模型才需要可用。 |
 | 工具 | 模型可以调用 `calculator`、`read_file`、`glob_files`、`grep_files`；调用前复核该 Agent 的授权。 |
 | 数据 | 消息、任务、审批、已读位置和事件保存在 SQLite；Agent 和 Team 定义保存在用户目录的 TOML。 |
 | 页面 | 支持好友与群聊切换、最近消息、全部消息、待审批筛选、Agent 配置和任务状态查看。 |
@@ -64,7 +64,7 @@ futurework --home /path/to/my-futurework serve
 
 ## 完全使用本地模型
 
-本地部署支持两种开箱示例：Ollama 的 OpenAI 兼容接口和 vLLM 的 OpenAI 兼容接口。FutureWork 调用的是 `/v1/chat/completions`，因此也可以接入实现该接口的其他本地推理服务。默认本地示例不发送 `Authorization` 请求头，也不需要云平台密钥。
+本地部署支持 Ollama、vLLM 的 OpenAI 兼容接口，以及下文的公司 HTTP 模型代理。Ollama 和 vLLM 使用 `/v1/chat/completions`，也可以接入实现该接口的其他本地推理服务。默认 Ollama/vLLM 示例不发送 `Authorization` 请求头，也不需要云平台密钥。
 
 ### 方案一：Ollama
 
@@ -159,9 +159,47 @@ supports_tools = false
 
 本地示例把 `supports_tools` 设为 `false`，因为不同模型和服务对工具调用的支持不一致。只有在本地服务确实支持 OpenAI 兼容 `tools`/`tool_calls` 请求与响应时，才把它改为 `true`；否则文本对话仍可用，但不会调用内置工具。
 
+### 方案三：公司 HTTP 模型代理
+
+如果公司模型使用 Bamboo 的 `http_provider.py` 协议，应选用 `adapter = "http_provider"`，而非 `openai_chat`。此协议把 `base_url` 当作**完整 POST 地址**，不会自动拼接 `/chat/completions`；请求外层是 `model`、`request`、`timeout`，其中 `request.messages` 的文本内容是 `[{"type":"text","text":"..."}]` 格式。响应既可直接返回 Chat Completion，也可用 `result` 包住它；适配器同时识别 `success`、`code`、`errorCode` 业务状态和工具调用。
+
+新用户目录内置以下示例；旧用户目录需手工把相应表加到 `~/.futurework/models.toml`：
+
+```toml
+[providers.company_http]
+adapter = "http_provider"
+base_url = "${HTTP_PROVIDER_BASE_URL}"
+api_key_env = "HTTP_PROVIDER_API_KEY"
+allow_insecure_http = true
+
+[models.company_http_local]
+provider = "company_http"
+remote_id = "local_openai-gpt-5.2-chat"
+supports_tools = false
+temperature = 1.0
+max_output_tokens = 4096
+timeout_seconds = 60
+
+[models.company_http_local.extra_body]
+timeout = 30
+```
+
+运行前在启动 FutureWork 的终端设置公司代理的**完整地址**和访问密钥：
+
+```bash
+export HTTP_PROVIDER_BASE_URL="https://公司代理的完整请求地址"
+export HTTP_PROVIDER_API_KEY="你的访问密钥"
+futurework doctor
+futurework serve
+```
+
+上面的地址只是填写位置，不是实际可访问地址。`HTTP_PROVIDER_BASE_URL` 只有选用该模型时才会读取；`futurework doctor` 可在未设置公司环境变量时检查其他配置。实际 `remote_id` 应按公司服务要求修改；当前示例会按 Bamboo 的规则将开头的 `local_` 去掉后发送。模型如需额外请求字段，可在 `[models.company_http_local.extra_body.request]` 下填写；如需额外请求头，可在 `[providers.company_http.extra_headers]` 或 `[models.company_http_local.extra_headers]` 下填写。请求头的值也可以写成完整的 `${环境变量名}` 引用，使用时再解析。只有公司服务支持同样的工具调用格式时，才把 `supports_tools` 设为 `true`。
+
+切换小未及好友的方法与 Ollama 相同：将各自 TOML 的 `[model] id` 改为 `company_http_local`；将 `app.toml` 的 `[model] default_model` 改成该别名，才会影响之后自动创建的 Agent。服务使用局域网明文 HTTP 时保留 `allow_insecure_http = true`；使用 HTTPS 可以设为 `false`。不要把公司真实端点、密钥或内部请求头提交到仓库。
+
 ## 模型配置说明
 
-`~/.futurework/models.toml` 把**平台连接**和**模型别名**分开。`[providers.<名称>]` 指定协议适配器、接口根地址、密钥环境变量；`[models.<别名>]` 指定平台、平台原生模型 ID 和工具能力。Agent 只引用模型别名。实际请求地址是 Provider 的 `base_url` 后接 `/chat/completions`；Anthropic 使用其 Messages 协议。
+`~/.futurework/models.toml` 把**平台连接**和**模型别名**分开。`[providers.<名称>]` 指定协议适配器、接口地址、密钥环境变量；`[models.<别名>]` 指定平台、平台原生模型 ID 和工具能力。Agent 只引用模型别名。`openai_chat` 在 `base_url` 后接 `/chat/completions`，`anthropic_messages` 使用 Messages 协议，`http_provider` 则直接请求完整的 `base_url`。
 
 | 平台或示例 | 默认别名 | 密钥环境变量 |
 | --- | --- | --- |
@@ -176,8 +214,9 @@ supports_tools = false
 | OpenRouter | `openrouter_default` | `OPENROUTER_API_KEY` |
 | Ollama | `ollama_local` | 默认不需要 |
 | vLLM | `vllm_local` | 默认不需要 |
+| 公司 HTTP 代理 | `company_http_local` | `HTTP_PROVIDER_API_KEY`；地址由 `HTTP_PROVIDER_BASE_URL` 提供 |
 
-这些是**可编辑的示例别名**，不是对第三方账号权限或模型可用性的保证。供应商若调整模型名、端点或参数，请修改对应 TOML。可以自行新增符合 OpenAI Chat Completions 协议的平台；`adapter = "openai_chat"` 即可复用现有适配器。当前并不支持任意自定义 HTTP 响应格式。请求的超时、重试、温度和默认输出长度由 `~/.futurework/app.toml` 的 `[model]` 管理；模型条目还可以单独设置 `temperature`、`max_output_tokens`。当前实现只有文本模型请求，图像/视频生成以及视觉输入不在此版本范围内。
+这些是**可编辑的示例别名**，不是对第三方账号权限或模型可用性的保证。供应商若调整模型名、端点或参数，请修改对应 TOML。可以自行新增符合 OpenAI Chat Completions 协议的平台；`adapter = "openai_chat"` 即可复用现有适配器。公司代理使用上文所述的独立 `http_provider` 格式；其他任意自定义 HTTP 格式仍不支持。请求的超时、重试、温度和默认输出长度由 `~/.futurework/app.toml` 的 `[model]` 管理；模型条目还可以单独设置 `temperature`、`max_output_tokens`。当前实现只有文本模型请求，图像/视频生成以及视觉输入不在此版本范围内。
 
 ## Agent 好友和群聊
 

@@ -51,15 +51,16 @@ def load_user_config(home: Path) -> dict:
     model_aliases = set(models.get("models", {}))
     providers = models.get("providers", {})
     for provider_id, provider in providers.items():
-        if provider.get("adapter") not in {"openai_chat", "anthropic_messages"}:
+        if provider.get("adapter") not in {"openai_chat", "anthropic_messages", "http_provider"}:
             raise ValueError(f"Unknown adapter for provider {provider_id}")
         url = provider.get("base_url", "")
-        parts = urlsplit(url)
-        loopback = parts.hostname in {"127.0.0.1", "localhost", "::1"}
-        http_allowed = parts.scheme == "http" and (loopback or provider.get("allow_insecure_http") is True)
-        if (not parts.hostname or parts.scheme not in {"http", "https"}
-                or not (parts.scheme == "https" or http_allowed)
-                or parts.username or parts.password or parts.query or parts.fragment
+        dynamic_url = provider.get("adapter") == "http_provider" and isinstance(url, str) and re.fullmatch(r"\$\{[A-Za-z_][A-Za-z0-9_]*\}", url)
+        parts = urlsplit(url) if isinstance(url, str) and not dynamic_url else None
+        loopback = parts is not None and parts.hostname in {"127.0.0.1", "localhost", "::1"}
+        http_allowed = parts is not None and parts.scheme == "http" and (loopback or provider.get("allow_insecure_http") is True)
+        query_allowed = provider.get("adapter") == "http_provider"
+        valid_literal = parts is not None and parts.hostname and (parts.scheme == "https" or http_allowed) and not (parts.username or parts.password or parts.fragment or (parts.query and not query_allowed))
+        if (not (dynamic_url or valid_literal)
                 or (not provider.get("api_key_env") and provider.get("allow_no_key") is not True)):
             raise ValueError(f"Invalid endpoint or key reference for provider {provider_id}")
     for alias, model in models.get("models", {}).items():

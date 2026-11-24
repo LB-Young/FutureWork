@@ -4,11 +4,12 @@ import asyncio
 
 import httpx
 
-from futurework.integrations.model_gateway.adapters import anthropic, openai_chat
+from futurework.integrations.model_gateway.adapters import anthropic, http_provider, openai_chat
 from futurework.integrations.model_gateway.types import ModelRequest, ModelResult
 
 
-ADAPTERS = {"openai_chat": openai_chat.generate, "anthropic_messages": anthropic.generate}
+ADAPTERS = {"openai_chat": openai_chat.generate, "anthropic_messages": anthropic.generate,
+            "http_provider": http_provider.generate}
 
 
 async def generate(request: ModelRequest, config: dict) -> ModelResult:

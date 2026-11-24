@@ -59,6 +59,13 @@ base_url = "http://127.0.0.1:8001/v1"
 allow_no_key = true
 allow_insecure_http = false
 
+# Bamboo 风格的公司 HTTP 代理；变量仅在选用这个模型时解析。
+[providers.company_http]
+adapter = "http_provider"
+base_url = "${HTTP_PROVIDER_BASE_URL}"
+api_key_env = "HTTP_PROVIDER_API_KEY"
+allow_insecure_http = true
+
 [models.default_fast]
 provider = "deepseek"
 remote_id = "deepseek-chat"
@@ -119,3 +126,14 @@ supports_tools = false
 provider = "openrouter"
 remote_id = "openai/gpt-4.1-mini"
 supports_tools = true
+
+[models.company_http_local]
+provider = "company_http"
+remote_id = "local_openai-gpt-5.2-chat"
+supports_tools = false
+temperature = 1.0
+max_output_tokens = 4096
+timeout_seconds = 60
+
+[models.company_http_local.extra_body]
+timeout = 30
