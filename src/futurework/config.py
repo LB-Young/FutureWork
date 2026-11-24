@@ -5,6 +5,7 @@ from pathlib import Path
 import tomllib
 
 from futurework.config_store.loader import load_user_config
+from futurework.runtime.tool_dispatch import PUBLIC_TOOLS, SCHEMAS
 
 
 WEB_DIRECTORY = files("futurework").joinpath("web")
@@ -23,7 +24,12 @@ def load_config(home: Path) -> dict:
     """Load validated files and materialize Agent and Team database projections."""
     raw = load_user_config(home)
     with DEFAULT_CONFIG.open("rb") as source:
-        config = _merge(tomllib.load(source), raw["app"])
+        bundled = tomllib.load(source)
+    config = _merge(bundled, raw["app"])
+    config["permissions"]["available_tools"] = list(PUBLIC_TOOLS)
+    config["permissions"]["safe_default_tools"] = [name for name in config["permissions"]["safe_default_tools"] if name in SCHEMAS]
+    required = set(bundled["permissions"]["approval_required_tools"]) | set(config["permissions"]["approval_required_tools"])
+    config["permissions"]["approval_required_tools"] = [name for name in SCHEMAS if name in required]
     assistant = raw["agents"]["assistant"]
     config["ui"]["assistant_name"] = assistant["name"]
     config["ui"]["assistant_role"] = assistant["role"]

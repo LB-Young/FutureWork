@@ -35,6 +35,28 @@ def test_openai_compatible_tool_round_trip(tmp_path, monkeypatch):
     assert requests[1]["messages"][-1] == {"role": "tool", "tool_call_id": "call_1", "content": "5"}
 
 
+def test_model_requested_write_changes_workspace_file(tmp_path, monkeypatch):
+    config = load_config(ensure_home(tmp_path / "home"))
+    requests = []
+
+    def handle(request):
+        requests.append(json.loads(request.content))
+        if len(requests) == 1:
+            return httpx.Response(200, json={"choices": [{"message": {"content": None, "tool_calls": [
+                {"id": "call_write", "type": "function", "function": {"name": "write",
+                 "arguments": '{"file_path":"report.txt","content":"done"}'}}
+            ]}}]})
+        return httpx.Response(200, json={"choices": [{"message": {"content": "已写入报告"}}]})
+
+    original = httpx.AsyncClient
+    monkeypatch.setattr(openai_chat.httpx, "AsyncClient", lambda **kwargs: original(transport=httpx.MockTransport(handle), **kwargs))
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-only-key")
+    agent = {"id": "code", "name": "阿码", "role": "开发", "model": "default_fast", "tools": ["write"]}
+    assert asyncio.run(respond(agent, [{"from": "me", "text": "写一份报告"}], config)) == "已写入报告"
+    assert (config["home"] / "workspace" / "report.txt").read_text() == "done"
+    assert requests[0]["tools"][0]["function"]["name"] == "write"
+
+
 def test_tool_grants_and_workspace_boundary(tmp_path):
     config = load_config(ensure_home(tmp_path / "home"))
     workspace = config["home"] / "workspace"

@@ -1,6 +1,6 @@
 # FutureWork 工程目录设计
 
-状态：目标架构与首个可运行版本。当前开发分支已接通用户目录配置、SQLite 消息和任务、多平台文本模型网关、小未分派、Agent 私聊、两种群聊模式、显式启用的 Skill 文本加载，以及计算和工作区文件检索四种内置工具。Workflow、MCP、其他内置工具的执行与完整记忆检索仍属于后续阶段。此前的实验性实现保留在 `feat/user-home-package` 分支供参考。
+状态：目标架构与首个可运行版本。当前开发分支已接通用户目录配置、SQLite 消息和任务、多平台文本模型网关、小未分派、Agent 私聊、两种群聊模式、显式启用的 Skill 文本加载，以及计算、工作区文件操作、公共网页抓取和受限命令执行等通用工具。浏览器自动化、BKN、LSP、Workflow、MCP 与完整记忆检索仍属于后续阶段。此前的实验性实现保留在 `feat/user-home-package` 分支供参考。
 
 参考 Bamboo 后，当前执行入口会把数据库/TOML 记录转换为 `AgentRun` 对象；模型网关使用 `ModelRequest` 与 `ModelResult`，工具调度使用 `ToolRequest` 与 `ToolResult`。这些对象跨运行层传递，配置文件和 HTTP/SQLite 边界仍用原生映射。新用户目录预置 DeepSeek、Kimi、MiniMax、MiMo、GPT、Claude、阿里云千问、智谱、OpenRouter、Ollama、vLLM，以及 Bamboo 风格公司 HTTP 代理的文本模型别名。图像/视频模型、其他任意自定义 HTTP 协议及 Bamboo 的其他默认工具尚未实现，不能仅凭配置项认为可用。
 

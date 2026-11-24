@@ -5,7 +5,7 @@ import json
 from futurework.integrations.model_gateway.gateway import generate
 from futurework.integrations.model_gateway.types import ModelRequest
 from futurework.extension_system.skill_loader import load_skills
-from futurework.runtime.tool_dispatch import ToolRequest, execute, schemas_for
+from futurework.runtime.tool_dispatch import ToolRequest, execute_async, schemas_for
 from futurework.runtime.run_spec import AgentRun
 
 
@@ -44,6 +44,6 @@ async def execute_run(run: AgentRun) -> str:
                          "tool_calls": [{"id": call.id, "type": "function", "function": {"name": call.name,
                                          "arguments": json.dumps(call.arguments)}} for call in result.tool_calls]})
         for call in result.tool_calls:
-            output = execute(ToolRequest(agent_id=run.agent_id, name=call.name, arguments=call.arguments), grants, config)
+            output = await execute_async(ToolRequest(agent_id=run.agent_id, name=call.name, arguments=call.arguments), grants, config)
             messages.append({"role": "tool", "tool_call_id": call.id, "content": output.content})
     raise RuntimeError("模型工具调用超过最大轮数")

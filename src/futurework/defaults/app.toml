@@ -51,9 +51,9 @@ system_prompt = "你是 FutureWork 团队中的 Agent。只回答当前任务，
 mock_reply = "已记录你的消息。当前使用本地演示模型，尚未执行外部工具；配置模型 API 后可以生成实际回复。"
 
 [permissions]
-available_tools = ["calculator", "read_file", "glob_files", "grep_files", "网页搜索", "文件读取", "代码执行", "图像生成", "日历访问", "外部发送"]
-safe_default_tools = ["calculator"]
-approval_required_tools = ["代码执行", "外部发送", "文件读取", "日历访问", "read_file", "glob_files", "grep_files"]
+available_tools = ["calculator", "read", "glob", "grep", "write", "edit", "skill_load", "web_fetch", "url_to_md", "bash"]
+safe_default_tools = ["calculator", "read", "glob", "grep", "skill_load"]
+approval_required_tools = ["read_file", "glob_files", "grep_files", "write", "edit", "web_fetch", "url_to_md", "bash"]
 
 [tool_runtime]
 workspace = "workspace"
@@ -66,6 +66,16 @@ max_lines = 200
 max_matches = 100
 max_scanned_files = 1000
 max_pattern_chars = 200
+max_context_lines = 5
+max_url_chars = 2048
+max_web_bytes = 1000000
+web_timeout_seconds = 15
+web_user_agent = "FutureWork/0.1"
+max_web_redirects = 3
+allow_shell = false
+max_command_chars = 2000
+shell_timeout_seconds = 30
+shell_env_allowlist = ["PATH", "LANG", "LC_ALL", "TMPDIR"]
 
 [execution]
 run_assigned_steps_with_model = true

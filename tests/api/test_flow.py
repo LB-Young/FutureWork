@@ -54,14 +54,14 @@ def test_approval_updates_agent_toml(tmp_path):
     client = TestClient(create_app(home))
     original = client.get("/api/v1/agents/code").json()
     proposal = {"expected_version": original["version"], "model": "default_fast",
-                "tools": ["代码执行"], "approval": True}
+                "tools": ["write"], "approval": True}
     pending = client.patch("/api/v1/agents/code", json=proposal)
     assert pending.status_code == 200
     assert pending.json()["status"] == "pending_approval"
     decision = client.post(f"/api/v1/approvals/{pending.json()['approval_id']}/decision", json={"decision": "approve"})
     assert decision.status_code == 200
     with (home / "agents" / "code.toml").open("rb") as source:
-        assert tomllib.load(source)["tools"] == ["代码执行"]
+        assert tomllib.load(source)["tools"] == ["write"]
 
 
 def test_swarm_and_controlled_group_replies(tmp_path, monkeypatch):

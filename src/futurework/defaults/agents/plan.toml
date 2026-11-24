@@ -5,7 +5,7 @@ name = "程程"
 role = "项目与日程"
 kind = "friend"
 status = "active"
-tools = ["calculator"]
+tools = ["calculator", "read", "glob", "grep", "skill_load"]
 
 [model]
 id = "default_fast"
