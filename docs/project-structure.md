@@ -21,7 +21,7 @@ FutureWork/
 ├── .env.example                     # 环境变量名称示例；密钥不入库
 ├── config/
 │   ├── app.toml                     # 服务、数据库、队列、限额、前端公开参数
-│   ├── models.toml                  # 模型别名、供应商适配、费用/上下文窗口
+│   ├── models.toml                  # 模型别名、供应商实例、费用/上下文窗口
 │   ├── tools.toml                   # 工具注册表、风险等级、默认审批策略
 │   ├── matching.toml                # 匹配权重、阈值、负载与成本参数
 │   ├── planner.toml                 # 任务拆解约束、能力词典、回退规则
@@ -35,7 +35,7 @@ FutureWork/
 │   │   ├── code.toml                # 阿码
 │   │   ├── write.toml               # 言言
 │   │   └── plan.toml                # 程程
-│   ├── groups/
+│   ├── teams/
 │   │   ├── launch.toml              # 产品发布小组
 │   │   ├── weekly.toml              # 每周进展同步
 │   │   └── ideas.toml               # 灵感碰撞室
@@ -101,7 +101,9 @@ FutureWork/
 │   │   ├── router.py                # 按会话类型选择三种顶层 Runtime
 │   │   ├── assistant_runtime.py     # 小未对话：规划、分派、建 Agent、汇总
 │   │   ├── direct_runtime.py        # Agent 私聊：单 Agent 回复与私有上下文
-│   │   ├── group_runtime.py         # 群聊：成员路由、发言顺序、共享上下文
+│   │   ├── group_runtime.py         # 群聊公共状态机与共享上下文
+│   │   ├── group_swarm.py           # 无中控：成员自治、发言队列与停止条件
+│   │   ├── group_controlled.py      # 小未中控：规划、分派、跟踪与汇总
 │   │   ├── agent_executor.py        # 三种 Runtime 共用的单 Agent 推理/工具循环
 │   │   ├── run_spec.py              # 配置版本、上下文作用域、任务和预算快照
 │   │   ├── checkpoints.py           # 运行状态持久化、恢复和取消
@@ -120,7 +122,15 @@ FutureWork/
 │   │   ├── task_service.py           # 规划、分派、执行、汇总
 │   │   └── inbox_service.py          # 最近动态/全部/待审批读模型
 │   ├── integrations/
-│   │   └── model_gateway.py          # 供应商协议与适配器
+│   │   └── model_gateway/
+│   │       ├── gateway.py           # 别名路由、预算、重试、用量归一化
+│   │       ├── types.py             # ModelRequest/ModelResult/错误类型
+│   │       ├── registry.py          # 加载平台实例和模型别名
+│   │       └── adapters/
+│   │           ├── openai_chat.py   # OpenAI Chat Completions 协议
+│   │           ├── anthropic.py     # Claude Messages 协议
+│   │           ├── base.py          # Adapter 协议与能力声明
+│   │           └── profiles/        # 平台差异：阿里云、DeepSeek、Kimi、MiniMax、OpenRouter、OpenAI
 │   ├── persistence/
 │   │   ├── models.py                # SQLAlchemy 表
 │   │   ├── repositories/            # Agent、Group、Context、Task 等仓储
@@ -158,13 +168,13 @@ FutureWork/
         └── tools/<publisher>/<id>/<version>/
 ```
 
-这是**目标组织方式**。当前 MVP 的 `src/futurework/app.py`、`src/futurework/database.py` 和 `~/.futurework/app.toml` 较集中；后续按业务边界拆开。现有无构建页面位于 `src/futurework/web/`。
+这是**目标模块组织方式**。代码应放在可安装包 `src/futurework/`；上面的 `backend/` 和 `frontend/` 代表包内后端模块与页面资源，不要求重新把它们放到仓库根目录。`config/` 和 `data/extensions/` 的可写内容实际位于 `~/.futurework/`：`app.toml`、`models.toml`、`agents/`、`teams/`、`skills/`、`mcp/`、`workflows/`、`memory/`、`data/`。内置默认文件随包发布，首次运行复制到用户目录；以后以用户目录为准。当前 MVP 的 `src/futurework/app.py`、`src/futurework/database.py` 和 `~/.futurework/app.toml` 较集中，现有无构建页面位于 `src/futurework/web/`。
 
 ## 3. 配置文件契约
 
 ### 3.1 Agent：一个文件定义一个好友
 
-`config/agents/research.toml` 示例：
+`~/.futurework/agents/research.toml` 目标配置示例：
 
 ```toml
 schema_version = 1
@@ -179,7 +189,7 @@ ink = "#7873ad"
 prompt_file = "prompts/agents/research.md"
 
 [model]
-id = "default-fast"                 # 引用 models.toml 中的别名
+id = "default_fast"                 # 引用 models.toml 中的别名
 temperature = 0.4                   # 覆盖全局默认值；可省略
 
 [capabilities]
@@ -212,11 +222,11 @@ profile = "standard"                 # 引用 runtime.toml；小未可用 orches
 max_turns = 8                         # 只能在全局硬上限内覆盖
 ```
 
-`assistant.toml` 使用相同 schema，增加 `kind = "assistant"`、`system = true` 和规划权限；系统内恰好一个 assistant。`prompt_file` 的相对路径只能落在 `config/prompts/` 内。小型 Agent 可直接用 TOML 的 `system_prompt` 字段；长提示词用独立 Markdown 文件，仍由该 Agent 配置文件引用。
+`assistant.toml` 使用相同 schema，增加 `kind = "assistant"`、`system = true` 和规划权限；系统内恰好一个 assistant。`prompt_file` 的相对路径只能落在 `~/.futurework/prompts/` 内。小型 Agent 可直接用 TOML 的 `system_prompt` 字段；长提示词用独立 Markdown 文件，仍由该 Agent 配置文件引用。
 
 ### 3.2 Group：一个文件定义一个群聊
 
-`config/groups/launch.toml` 示例：
+`~/.futurework/teams/launch.toml` 中控群示例：
 
 ```toml
 schema_version = 1
@@ -227,11 +237,19 @@ icon = "发"
 color = "#e4ede7"
 ink = "#398769"
 members = ["design", "write", "plan"]
+mode = "controlled"                 # controlled | swarm
 
 [reply]
-strategy = "mention_then_facilitator"
-facilitator_agent_id = "assistant"
-max_parallel_responders = 1
+max_responders_per_round = 3
+max_rounds = 2
+max_total_model_calls = 8
+on_budget_exhausted = "summarize_and_stop"
+
+[controller]
+agent_id = "assistant"              # controlled 必须为小未；swarm 禁止设置
+selection_policy = "mention_then_capability"
+require_plan = true
+summarize_results = true
 
 [context]
 history_token_budget = 10000
@@ -251,13 +269,72 @@ workflows = ["builtin/product-launch@1.0.0"]
 mcp_allowlist = []                     # 群可用连接上限；成员仍须独立授权
 ```
 
-群配置只引用成员 ID，不复制成员的模型、能力或工具授权。成员不存在、处于 archived 状态、重复、或 `facilitator_agent_id` 不符合回复策略时，启动校验失败。群聊的 `allow_member_tools` 仅表示群内是否允许发起工具请求，不能覆盖 Agent 自身权限和用户对资源的授权。
+`swarm` 群保留共同字段和 `[reply]`，删除整个 `[controller]` 表。群配置只引用成员 ID，不复制成员的模型、能力或工具授权。成员不存在、处于 archived 状态或重复时，启动校验失败。`mode` 只允许 `swarm`、`controlled`；`controlled` 必须指定小未，`swarm` 不得出现中控配置。群聊的 `allow_member_tools` 仅表示群内是否允许发起工具请求，不能覆盖 Agent 自身权限和用户对资源的授权。模式、成员或预算变化产生新的群配置版本，进行中的一轮继续使用启动时的快照。
+
+**Swarm：无中控。** 每个 Agent 根据自身能力、群内消息和显式 `@` 判断是否参与；`@` 限定候选成员，无 `@` 时所有符合群订阅规则的成员可提出发言意向。`GroupChatRuntime` 只负责公平排队、并发限制、消息提交顺序、预算和停止条件，不生成任务计划，也不以小未身份决定谁该说什么。成员能看到群作用域内已提交的消息，不能读取其他成员的私聊。每轮每个成员最多一次主动发言；后续轮次只由新群消息或明确协作请求触发。所有成员间的请求和结果都写入群时间线，防止隐形对话和无限循环。
+
+**Controlled：小未中控。** 小未在群作用域中创建结构化 `GroupPlan`（用户目标、候选成员、分派步骤、依赖、预算、停止条件），策略校验后再分派。明确 `@Agent` 是候选约束；小未可以请求补充信息、安排多名成员按步骤协作、汇总结果或发起审批。她只使用本群上下文和成员公开能力，不自动读取自己与用户的私聊记忆，也不把群聊内容写回个人助理私聊。若小未模型不可用，采用配置的降级策略：暂停并告知用户，或按显式规则选择一位成员；不能静默切到 Swarm。两种模式均受同一群权限和成本硬上限约束。
 
 ### 3.3 全局配置与覆盖顺序
 
 `app.toml` 只放全局运行参数；模型、工具、匹配、上下文各有专用文件。**生效值 = 全局默认值 → 作用域配置覆盖 → 任务级限制收紧**。任务只能收紧限额或权限，不得扩大 Agent/群权限。敏感配置（模型 API key、数据库凭证）由环境变量或密钥管理器注入；TOML 只存环境变量名称/密钥引用。
 
 文件解析使用 `tomllib`，Pydantic schema 设置 `extra = "forbid"`，避免拼写错误被静默忽略。校验必须覆盖：schema 版本、文件名与 ID 一致、ID 唯一、模型/工具/能力引用有效、成员关系有效、上下文预算为正、风险策略不弱于全局下限、提示词路径不能越界。配置通过校验后计算内容哈希并存入 `config_versions`；热更新只对新任务生效。
+
+#### 3.3.1 多平台模型注册与适配器
+
+`~/.futurework/models.toml` 将**平台实例**与**模型别名**分开。平台实例决定协议、接口地址和密钥环境变量；别名决定平台实例、原生模型 ID、能力、上下文窗口和预算参数。Agent 的 `[model].id` 只引用别名，不直接写 URL 或密钥。用户可以同时配置多个平台，甚至为同一供应商配置两个不同账户。示例：
+
+```toml
+schema_version = 1
+
+[providers.aliyun_cn]
+adapter = "openai_chat"
+base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+api_key_env = "DASHSCOPE_API_KEY"
+region = "cn"
+
+[providers.deepseek]
+adapter = "openai_chat"
+base_url = "https://api.deepseek.com"
+api_key_env = "DEEPSEEK_API_KEY"
+
+[providers.claude]
+adapter = "anthropic_messages"
+base_url = "https://api.anthropic.com"
+api_key_env = "ANTHROPIC_API_KEY"
+api_version = "2023-06-01"
+
+[models.default_fast]
+provider = "deepseek"
+remote_id = "deepseek-chat"
+context_window = 64000
+supports_tools = true
+supports_streaming = true
+# 价格未知时省略价格字段，此模型不可用于自动成本比较或自动跨平台回退
+
+[models.review_strong]
+provider = "claude"
+remote_id = "<填入账户可用的 Claude 模型 ID>"
+context_window = 200000
+supports_tools = true
+supports_streaming = true
+```
+
+平台实例可用多个别名复用。`model_id` 与 `remote_id` 不应混用：本项目用 `models.<alias>` 作为稳定引用，`remote_id` 原样传给平台。实际端点、模型 ID、价格、上下文限制与功能支持均由用户按账户和平台文档配置并校验；示例不承诺特定模型长期可用。
+
+| 平台实例类型 | 目标适配器 | 关键差异 |
+| --- | --- | --- |
+| OpenAI GPT | `openai_chat.py` | Bearer key、Chat Completions 消息和工具调用 |
+| 阿里云百炼、DeepSeek、Kimi、MiniMax | `openai_chat.py` + 各自的 profile；确有协议差异时增加平台适配器 | 优先用官方兼容端点；按平台分别校验端点、模型 ID、参数、鉴权、错误和 usage，不在业务层写平台分支 |
+| OpenRouter 等第三方聚合平台 | `openai_chat.py` + 平台元数据 | 远端模型 ID 可能含供应商前缀；上游实际供应商、地域及价格需要记录，敏感数据路由受策略限制 |
+| Anthropic Claude | `anthropic.py` | Messages API、`x-api-key`/版本头、独立 system 与 content block；工具结果和停止原因单独映射 |
+
+`ModelGateway.generate(ModelRequest) -> ModelResult` 是唯一模型入口。请求包括别名、消息与内容块、工具 schema、流式开关、作用域、截止时间和 token/费用预算；结果统一文本、工具调用、usage、结束原因、平台 request ID 与错误类别。适配器只做协议转换、鉴权头与响应解析；网关负责路由、并发/速率限制、审计、用量与费用核算。模型参数先取全局默认，再应用平台限制和 Agent 覆盖；调用前检查 `supports_tools`、`supports_streaming`、上下文窗口及预算，不能把不支持的能力硬塞进请求。
+
+每个平台 profile 独立声明 `endpoint_path`、默认请求头、支持的参数、工具/流式能力映射、错误码与 usage 解析规则：`openai`、`aliyun`、`deepseek`、`kimi`、`minimax`、`openrouter`；Claude 使用 `anthropic` 协议适配器和 profile。这样多平台共用协议核心，但兼容性差异有明确维护位置。未知 OpenAI 兼容平台可从受限的 `openai_chat` profile 起步，只有通过契约测试后才开放工具调用、流式输出或自动回退。平台返回的模型列表可供配置检查，但不能自动改写 Agent 已选的别名。
+
+密钥只保存在环境变量或系统密钥库，配置文件只写引用；日志、异常和 SSE 事件必须脱敏。401/403、配置错误和能力不支持直接失败；429、5xx、超时按平台 `Retry-After` 和指数退避重试，次数与总耗时受全局硬上限约束。产生工具副作用后禁止自动重放整轮请求。跨平台回退必须由 Agent 显式列出候选别名，并逐一验证工具能力、数据地域、费用与用户授权；不能因为一个平台故障就把私有数据自动发到另一个平台。当前 MVP 只有单一 `mock` 或全局 OpenAI 兼容端点，以上为后续实现目标。
 
 ### 3.4 三种对话 Runtime
 
@@ -267,27 +344,31 @@ mcp_allowlist = []                     # 群可用连接上限；成员仍须独
 | --- | --- | --- | --- |
 | `AssistantRuntime` | 用户 ↔ 小未 | `(workspace_id, "assistant", "assistant")` | 理解目标、规划、分派、创建 Agent 配置草案、跟踪和汇总任务 |
 | `DirectChatRuntime` | 用户 ↔ 某个 Agent 好友 | `(workspace_id, "agent", agent_id)` | 加载该 Agent 配置和私聊上下文，完成单 Agent 回复与获准的工具调用 |
-| `GroupChatRuntime` | 用户与多个 Agent 的群聊 | `(workspace_id, "group", group_id)` | 加载群配置和共享上下文，处理 @、选发言者、控制并发/顺序、汇总群内回复 |
+| `GroupChatRuntime` | 用户与多个 Agent 的群聊 | `(workspace_id, "group", group_id)` | 固定群配置版本和上下文，按 `mode` 调用 Swarm 或 Controlled 策略，控制轮次、预算与消息提交 |
 
 ```text
 用户消息
   -> MessageRouter 读取会话类型与配置版本
      -> assistant_direct: AssistantRuntime.run(assistant_scope)
      -> agent_direct:   DirectChatRuntime.run(agent_scope)
-     -> group:          GroupChatRuntime.run(group_scope)
+     -> group:          GroupChatRuntime.run(group_scope, mode)
+                         -> swarm: SwarmPolicy -> AgentExecutor(member...) * N
+                         -> controlled: XiaoWeiController -> GroupPlan -> AgentExecutor(member...) * N
 
 三种 Runtime 调用共用的 AgentExecutor：
   AgentExecutor.run(agent_config_version, allowed_context, task, budget)
     -> ModelGateway -> ToolDispatch -> Checkpoint
 ```
 
-**AssistantRuntime** 可以创建任务计划和子任务，但只从自己的上下文及经授权回传的任务产物中取材。它不能因“协调者”身份直接读取任意好友私聊或绕过权限审批。**DirectChatRuntime** 固定一个好友配置版本及其私有上下文，聊天内容不会写入群共享记忆。**GroupChatRuntime** 自己拥有群会话状态机和上下文管理：按群配置选出一位或多位成员，再分别调用成员的 `AgentExecutor`，传入的始终是群上下文与当前任务授权材料，不带入成员私聊。小未若作为群主持人参与，仍由 GroupChatRuntime 管理群会话，小未的单次执行也只能看到该群允许的资料。
+**AssistantRuntime** 可以创建任务计划和子任务，但只从自己的上下文及经授权回传的任务产物中取材。它不能因“协调者”身份直接读取任意好友私聊或绕过权限审批。**DirectChatRuntime** 固定一个好友配置版本及其私有上下文，聊天内容不会写入群共享记忆。**GroupChatRuntime** 拥有独立群状态机和上下文管理：`SwarmPolicy` 只执行成员自治发言和调度约束，`ControlledPolicy` 调用小未的群内中控子执行生成结构化计划，再把步骤交给成员的 `AgentExecutor`。两者都只传入群上下文及当前任务授权材料，不带入成员私聊。中控执行不等于 `AssistantRuntime` 的个人助理会话；它复用小未的身份配置和执行器，但使用群 `ScopeKey`、群预算、群审计记录。
 
-三个 Runtime 的顶层状态分别持久化为 `runtime_runs` 记录，含 `run_id`、`runtime_type`、`scope_key`、配置版本、消息游标、状态、预算和 checkpoint。群内每位成员的单次执行另有 `agent_executions` 子记录，关联群 `run_id`，以便取消、重试和审计。任务 worker 调用 `AgentExecutor` 完成子任务；它属于任务执行路径，不混用私聊或群聊的顶层状态机。
+群运行状态为 `received → selecting/planning → dispatching → collecting → summarizing/completed`，任一步可进入 `waiting_approval`、`failed` 或 `cancelled`。Swarm 跳过 `planning`，不生成中控总结；Controlled 可由小未生成汇总。成员结果提交到群时间线后才可作为下一轮输入。`max_rounds`、`max_responders_per_round`、`max_total_model_calls` 和 token/费用上限共同截断循环；达到上限时明确告知用户已有产物与未完成项。
+
+三个 Runtime 的顶层状态分别持久化为 `runtime_runs` 记录，含 `run_id`、`runtime_type`、群 `mode`、`scope_key`、配置版本、消息游标、状态、预算和 checkpoint。群内小未的中控计划及每位成员的单次执行分别有 `group_plans`、`agent_executions` 子记录，关联群 `run_id`，以便取消、重试和审计。任务 worker 调用 `AgentExecutor` 完成子任务；它属于任务执行路径，不混用私聊或群聊的顶层状态机。
 
 `runtime.toml` 统一定义最大循环次数、超时、重试、并发、token/费用硬上限和 checkpoint 周期；Agent TOML、群 TOML 只能在硬上限内收紧。`RunSpec` 固定 `agent_config_version?`、`group_config_version?`、`scope_key`、`context_cursor`、`task_id?` 和权限快照。权限变化只影响新运行；已暂停运行恢复时仍需重新检查敏感工具授权和审批有效期。
 
-**当前 MVP 现状：** `backend/app.py` 的 `send_message` / `execute_task` 和 `backend/model.py` 的 `respond` 是简化路径，目前没有这三个独立 Runtime、群成员子执行记录或可恢复 checkpoint。这是下一阶段需要实施的结构。
+**当前 MVP 现状：** `src/futurework/app.py` 的 `send_message` / `execute_task` 和 `src/futurework/model.py` 的 `respond` 是简化路径，目前没有多平台网关、两种群模式、三个独立 Runtime、群成员子执行记录或可恢复 checkpoint。这些属于下一阶段实现。
 
 ### 3.5 Tool、Skill、MCP 与 Workflow 扩展目录
 
@@ -404,7 +485,7 @@ sequenceDiagram
   API-->>U: 返回可用 Agent/群聊
 ```
 
-文件是权威来源，数据库是可查询的投影。**不能在生产多实例里让每个 API Pod 写自己的本地目录。** 本地版可直接原子写入 `config/agents/` 或 `config/groups/`；生产版使用独立的可写配置仓库/配置服务，验证后提交版本，再由各实例同步。若文件写入成功而数据库事务失败，`reconciler.py` 根据文件哈希重建投影；若数据库中有未对应文件的临时草案，不将其视为 active。配置写入必须有文件锁/版本条件，避免并发覆盖。
+文件是权威来源，数据库是可查询的投影。**不能在生产多实例里让每个 API Pod 写自己的本地目录。** 本地版可直接原子写入 `~/.futurework/agents/` 或 `~/.futurework/teams/`；生产版使用独立的可写配置仓库/配置服务，验证后提交版本，再由各实例同步。若文件写入成功而数据库事务失败，`reconciler.py` 根据文件哈希重建投影；若数据库中有未对应文件的临时草案，不将其视为 active。配置写入必须有文件锁/版本条件，避免并发覆盖。
 
 ### 5.2 编辑与审批
 
@@ -412,12 +493,13 @@ sequenceDiagram
 
 ## 6. 与当前 MVP 的迁移路径
 
-1. **先拆配置，不改 API 行为。** 将 `config/app.toml` 中 `[[agents.seed]]`、`[[groups.seed]]` 原样移至单独 TOML，保留 `research/design/code/write/plan` 和 `launch/weekly/ideas` ID。`bootstrap.py` 读目录，校验后向现有数据库投影；为旧数据库增加 `config_version`、`config_hash`。先让测试同时验证旧消息不丢失。
+1. **巩固已完成的逐文件配置。** 当前 `~/.futurework/agents/` 与 `~/.futurework/teams/` 已由文件加载并同步 SQLite；继续补 `schema_version`、配置内容哈希、版本冲突检查及旧数据库迁移，确保消息历史不丢失。
 2. **再引入类型化上下文。** 给现有 `messages` 和 `read_marks` 增加 `scope_type`、`scope_id`、`workspace_id`；迁移 `assistant` 为 `assistant` 类型、普通 Agent ID 为 `agent` 类型、群 ID 为 `group` 类型。建立联合索引，所有查询改用 `ScopeKey`。检查无同名 ID 混淆和跨群读取。
-3. **拆分服务并建立三种 Runtime。** 从当前 `backend/app.py` 提取 API、Agent/Group 服务、上下文服务和任务服务；`backend/algorithm.py` 拆成匹配与规划模块。按会话类型实现 `AssistantRuntime`、`DirectChatRuntime`、`GroupChatRuntime`，将共同的模型/工具循环收敛到 `AgentExecutor`。保持现有 REST 契约和前端路径不变，避免一次迁移引入多种变量。
-4. **实现配置写入闭环。** 手动创建、由小未创建、群聊创建及配置编辑都走同一个 writer + validator；高风险草案先审批。增加文件与投影对账、版本冲突和崩溃恢复测试。
-5. **建立扩展注册与安装链。** 先实现内置 Tool/Skill/Workflow 的 manifest 校验和 Runtime 解析，再接 MCP 客户端；第三方安装须完成暂存、校验、权限审批、版本固定和隔离执行。
-6. **最后替换运行基础设施。** 按 [系统设计](system-design.md) 引入 PostgreSQL、持久队列、用户鉴权和工具沙箱；上下文作用域与配置契约无需再改。
+3. **先建立模型网关，再拆分三种 Runtime。** 从当前 `src/futurework/model.py` 提取协议适配器、别名注册表、预算与错误映射；先验证 OpenAI 兼容平台及 Anthropic Messages，再按平台实际差异扩展。随后从 `src/futurework/app.py` 提取 API、Agent/Group 服务、上下文服务和任务服务；`src/futurework/algorithm.py` 拆成匹配与规划模块。按会话类型实现 `AssistantRuntime`、`DirectChatRuntime`、`GroupChatRuntime`，将共同的模型/工具循环收敛到 `AgentExecutor`。
+4. **把群 Runtime 分成两种策略。** 先给 Team 配置增加 `mode` 与预算字段、数据库投影和版本固定，再实现 `SwarmPolicy` 的成员自治和 `ControlledPolicy` 的小未群内计划。页面应显示群模式并允许创建或编辑时选择；模式切换只影响新运行。
+5. **实现配置写入闭环。** 手动创建、由小未创建、群聊创建及配置编辑都走同一个 writer + validator；高风险草案先审批。增加文件与投影对账、版本冲突和崩溃恢复测试。
+6. **建立扩展注册与安装链。** 先实现内置 Tool/Skill/Workflow 的 manifest 校验和 Runtime 解析，再接 MCP 客户端；第三方安装须完成暂存、校验、权限审批、版本固定和隔离执行。
+7. **最后替换运行基础设施。** 按 [系统设计](system-design.md) 引入 PostgreSQL、持久队列、用户鉴权和工具沙箱；上下文作用域与配置契约无需再改。
 
 ## 7. 必须通过的隔离测试
 
@@ -430,3 +512,6 @@ sequenceDiagram
 - 安装 Skill 不得自动授予其声明的 Tool/MCP；未授权的 MCP 工具调用必须被 `ToolDispatch` 拒绝并写审计事件。
 - 扩展升级后旧任务继续使用原版本；停用、回滚和依赖缺失不得让运行中的 Workflow 静默切换实现。
 - 重启服务后从文件重建数据库投影，原有消息、审批和上下文摘要仍属于原作用域。
+- 同一用户目录同时启用阿里云、DeepSeek、Kimi、MiniMax、OpenAI、OpenRouter 和 Claude 配置时，Agent 别名必须路由到正确平台与协议；密钥不得进入日志、配置回显或模型响应。Anthropic 的 system/content block 与 OpenAI 兼容消息、工具调用、usage、结束原因分别做契约测试。
+- 模型别名不存在、平台失效、能力不支持、429/超时、预算耗尽和跨平台回退未授权时，应返回明确状态；不得自动把私有群消息发往未许可的平台。
+- Swarm 群运行中不能产生小未中控计划；成员仅看到本群已提交消息，回应人数和轮次达上限后停止。Controlled 群由小未生成可审计计划，`@` 约束生效，小未不能读取个人助理私聊记忆；切换群模式后旧运行仍按原版本完成或取消。
