@@ -64,6 +64,23 @@ def test_local_model_catalog_and_no_key(tmp_path, monkeypatch):
     assert "authorization" not in seen[0].headers
 
 
+def test_vllm_local_uses_its_configured_port_without_cloud_key(tmp_path, monkeypatch):
+    config = load_config(ensure_home(tmp_path / "home"))
+    seen = []
+
+    def handle(request):
+        seen.append(request)
+        return httpx.Response(200, json={"choices": [{"message": {"content": "vLLM 回复"}}]})
+
+    original = httpx.AsyncClient
+    monkeypatch.setattr(openai_chat.httpx, "AsyncClient", lambda **kwargs: original(transport=httpx.MockTransport(handle), **kwargs))
+    agent = {"id": "assistant", "name": "小未", "role": "助理", "model": "vllm_local"}
+    assert asyncio.run(respond(agent, [{"from": "me", "text": "你好"}], config)) == "vLLM 回复"
+    assert seen[0].url == "http://127.0.0.1:8001/v1/chat/completions"
+    assert json.loads(seen[0].content)["model"] == "Qwen/Qwen2.5-7B-Instruct"
+    assert "authorization" not in seen[0].headers
+
+
 def test_anthropic_tool_result_is_translated(tmp_path, monkeypatch):
     config = load_config(ensure_home(tmp_path / "home"))
     seen = []

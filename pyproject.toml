@@ -6,6 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "futurework"
 version = "0.1.0"
 description = "Configurable local agent team application"
+readme = "README.md"
 requires-python = ">=3.12"
 dependencies = ["fastapi>=0.115,<1", "uvicorn>=0.30,<1", "httpx>=0.27,<1", "pydantic>=2,<3", "tomlkit>=0.13,<1"]
 
@@ -15,11 +16,17 @@ test = ["pytest>=8,<10"]
 [project.scripts]
 futurework = "futurework.cli:main"
 
+[tool.setuptools]
+include-package-data = false
+
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-futurework = ["**/*.toml", "**/*.md", "web/*", "README.md"]
+futurework = ["**/*.toml", "**/SKILL.md", "defaults/prompts/*.md", "defaults/prompts/agents/*.md", "web/*.html", "web/*.css", "web/*.js", "web/*.json"]
+
+[tool.setuptools.exclude-package-data]
+futurework = ["**/README.md", "**/readme.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

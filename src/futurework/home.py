@@ -61,6 +61,6 @@ def ensure_home(override: str | Path | None = None) -> Path:
             explanation = memory_dir / "README.md"
             if not explanation.exists():
                 explanation.write_text(
-                    f"# {definition.stem}\n\nPrivate memory for this {category[:-1]} scope.\n", encoding="utf-8"
+                    f"# {definition.stem}\n\n这里存放 {definition.stem} 对应的独立记忆；不同 Agent 或 Team 的内容不得混用。\n", encoding="utf-8"
                 )
     return home

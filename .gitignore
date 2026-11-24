@@ -3,5 +3,9 @@
 __pycache__/
 *.pyc
 *.egg-info/
+build/
+dist/
 data/*
-!data/README.md
+# 仅提交仓库根目录的 README；各子目录的说明保留在本地。
+**/[Rr][Ee][Aa][Dd][Mm][Ee].[Mm][Dd]
+!/README.md

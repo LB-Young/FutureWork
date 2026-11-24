@@ -51,11 +51,13 @@ api_key_env = "ZHIPU_API_KEY"
 adapter = "openai_chat"
 base_url = "http://127.0.0.1:11434/v1"
 allow_no_key = true
+allow_insecure_http = false
 
 [providers.vllm]
 adapter = "openai_chat"
 base_url = "http://127.0.0.1:8001/v1"
 allow_no_key = true
+allow_insecure_http = false
 
 [models.default_fast]
 provider = "deepseek"
@@ -67,6 +69,7 @@ supports_streaming = true
 provider = "deepseek"
 remote_id = "deepseek-chat"
 supports_tools = true
+
 [models.kimi_k3]
 provider = "kimi"
 remote_id = "kimi-k3"

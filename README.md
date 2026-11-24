@@ -1,36 +1,307 @@
-# FutureWork
+# FutureWork：由 Agent 好友组成的个人工作团队
 
-`frontend/` 保留静态设计原型；运行中的页面打包在 `src/futurework/web/`。当前版本已接通小未任务分派、Agent 私聊、Swarm/小未中控群聊、SQLite 消息历史、配置审批与多平台文本模型网关。Agent 可通过 TOML 显式启用用户安装的 Skill 文本。模型可调用 `calculator`、`read_file`、`glob_files`、`grep_files` 四个内置工具；其他界面工具选项仍只是授权记录，Workflow 和 MCP 执行器尚未接入。
+FutureWork 是一个可以在本机安装和运行的 Agent 团队应用。界面采用好友、群聊和消息收件箱的组织方式：你与个人助理「小未」交谈，小未把任务分给擅长对应能力的 Agent 好友；好友之间也可以组成群聊。除了你，好友和群成员都是 Agent。
 
-完整的前后端、Python 算法、数据模型与接口方案见 [系统设计文档](docs/system-design.md)；可安装包目录、模型适配器、群聊模式和独立上下文的目标结构见 [工程目录设计](docs/project-structure.md)。每个目录都包含 `README.md`，每个 Python/JavaScript 脚本开头说明职责。
+本项目仍在开发中。当前版本已经有可运行的网页、Python API、SQLite 持久化、多平台文本模型调用、基础工具调用和两种群聊模式。文档中的“目标架构”包含尚未完成的能力；使用前请先阅读下文的[当前能力与边界](#当前能力与边界)。
 
-使用 Python 3.12 或更高版本，在项目根目录运行：
+## 目录导航
+
+- [当前能力与边界](#当前能力与边界)
+- [安装与首次运行](#安装与首次运行)
+- [完全使用本地模型](#完全使用本地模型)
+- [模型配置说明](#模型配置说明)
+- [Agent 好友和群聊](#agent-好友和群聊)
+- [工具、权限与审批](#工具权限与审批)
+- [用户数据目录](#用户数据目录)
+- [页面与接口](#页面与接口)
+- [开发、测试与常见问题](#开发测试与常见问题)
+
+## 当前能力与边界
+
+| 模块 | 当前实现 |
+| --- | --- |
+| 个人助理 | 「小未」区分聊天和任务；任务按配置的关键词拆分、匹配 Agent，缺少对应能力时创建 Agent 配置并分派。 |
+| Agent 好友 | 每位好友由独立 TOML 定义，拥有自己的模型、能力、工具授权和私聊历史。 |
+| 群聊 | `swarm` 模式由成员轮流响应；`controlled` 模式由小未选择成员，必要时汇总多人回复。群聊读取本群自己的历史。 |
+| 模型 | 支持 OpenAI 兼容的文本接口和 Anthropic Messages 接口；预置多家云平台与 Ollama、vLLM 本地部署示例。只有选中的模型才需要可用。 |
+| 工具 | 模型可以调用 `calculator`、`read_file`、`glob_files`、`grep_files`；调用前复核该 Agent 的授权。 |
+| 数据 | 消息、任务、审批、已读位置和事件保存在 SQLite；Agent 和 Team 定义保存在用户目录的 TOML。 |
+| 页面 | 支持好友与群聊切换、最近消息、全部消息、待审批筛选、Agent 配置和任务状态查看。 |
+
+目前的工具范围只有上表所列四项。页面仍显示的「网页搜索」「代码执行」「图像生成」等旧选项只是配置记录，尚无对应执行器。Skill 的 `SKILL.md` 可以作为 Agent 的方法说明加载到提示词中，但安装 Skill 不会自动授予工具。Workflow、MCP、图像和视频模型、持久任务队列、完整记忆检索尚未接入。任务初稿由当前服务进程的后台任务生成；服务在生成中退出时，需要人工检查任务状态。
+
+## 安装与首次运行
+
+需要 Python 3.12 或更高版本。在仓库根目录执行：
 
 ```bash
 python -m pip install -e .
 futurework init
-# 在当前 shell 中设置 DEEPSEEK_API_KEY 后执行：
+futurework doctor
 futurework serve
 ```
 
-默认模型别名 `default_fast` 指向 DeepSeek `deepseek-chat`。密钥从 `DEEPSEEK_API_KEY` 环境变量读取，程序不会把它写入 TOML、数据库或 Git。打开 <http://127.0.0.1:8000/> 使用正式页面；API 文档在 <http://127.0.0.1:8000/docs>。首次运行 `init` 或 `serve` 时建立 `~/.futurework/`；`futurework doctor` 校验配置，`futurework paths` 显示目录。可用 `FUTUREWORK_HOME` 或 `--home` 指向独立用户目录。若此前已创建过用户目录，程序不会覆盖已有 `models.toml`；请手工把 `models.default_fast.provider` 设为 `deepseek` 并填写对应的 `remote_id`。
+`futurework init` 创建用户目录和缺失的初始配置；默认位置是 `~/.futurework/`。`futurework doctor` 检查 TOML 引用和部分配置约束，不会连接模型服务，也不保证模型 ID 或密钥有效。`futurework serve` 默认只监听 `127.0.0.1:8000`。浏览器打开 <http://127.0.0.1:8000/>；接口文档在 <http://127.0.0.1:8000/docs>。
 
-Agent、Team 和模型配置分别位于 `~/.futurework/agents/`、`teams/` 和 `models.toml`。手工修改后重启服务生效。自动创建的 Agent、页面创建的 Team 以及获批的 Agent 配置会写回 TOML。群聊的 `mode` 可设为 `swarm` 或 `controlled`；前者由成员依次回复，后者由小未选择成员、分派并汇总多人结果。消息、任务、审批和已读状态保存在 `~/.futurework/data/`。
+初始配置让小未和示例 Agent 使用 DeepSeek。如果使用云端 DeepSeek，先在**启动 FutureWork 的同一个终端**设置环境变量，再运行服务：
 
-参考 Bamboo 的模型注册表，新建用户目录的 `models.toml` 提供 DeepSeek、Kimi、MiniMax、MiMo、GPT、Claude、阿里云千问、智谱、OpenRouter，以及本地 Ollama/vLLM 文本模型别名。默认仍为 DeepSeek。云端模型各自读取环境变量；本地模型无需密钥，但需自行启动服务并按实际端口与模型名调整 TOML。图像、视频模型及 Bamboo 的通用自定义 HTTP 协议尚未实现。现有 `~/.futurework/models.toml` 不会被覆盖，需手工补入新条目。
+```bash
+export DEEPSEEK_API_KEY="你的密钥"
+futurework serve
+```
 
-执行层把 Agent 身份、当前会话历史、模型别名与工具授权收拢到 `AgentRun` 对象，再以 `ModelRequest`/`ModelResult` 对象通过网关和适配器传递。`calculator` 默认授予新 Agent 和示例 Agent；文件工具需在 Agent 配置中授权，页面增加权限会进入审批。三个文件工具只访问 `~/.futurework/workspace`（可在 `app.toml` 的 `[tool_runtime]` 修改），所有调用有轮数、输出和文件大小限制。已有 Agent 配置不会自动增添工具授权。
+密钥只从环境变量读取，不应写进 `models.toml`、Agent TOML 或 Git。使用其他云平台时，设置相应平台的密钥环境变量。只使用下述本地模型时，无需配置 DeepSeek 密钥。
 
-手工安装 Skill 时，将 `SKILL.md` 放在 `~/.futurework/skills/<id>/`，再在对应 Agent TOML 中写入 `[extensions] skills = ["<id>"]`。重启后该 Agent 的模型上下文会包含 Skill 说明；Skill 不会自动获得工具或文件权限。
+可以用 `FUTUREWORK_HOME` 指向另一个用户目录，也可以把 `--home` 放在命令前：
 
-## 静态原型预览
+```bash
+futurework --home /path/to/my-futurework init
+futurework --home /path/to/my-futurework doctor
+futurework --home /path/to/my-futurework serve
+```
 
-在项目目录运行 `python3 -m http.server 4173`，然后打开 `http://localhost:4173/frontend/`。
+首次初始化只复制缺失的默认文件，**不会覆盖已有的 `~/.futurework/models.toml`、`app.toml` 或手写 Agent/Team 定义**。更新程序后若想使用新增模型别名，请手工合并示例配置。修改 TOML 后重启服务，使新配置进入下一次运行。
 
-## 可体验的交互
+## 完全使用本地模型
 
-- 左侧折叠 Agent 好友和群聊，点击后切换对话。
-- 和个人助理发消息，体验任务分配和按需创建新 Agent 的演示流程。
-- 展开右侧消息区，浏览所有对话；切换“待我审批”筛选并处理审批。
-- 打开 Agent 对话后点击“配置能力”，调整模型、工具和审批权限。
-- 通过“创建 Agent 好友”手动添加演示成员。
+本地部署支持两种开箱示例：Ollama 的 OpenAI 兼容接口和 vLLM 的 OpenAI 兼容接口。FutureWork 调用的是 `/v1/chat/completions`，因此也可以接入实现该接口的其他本地推理服务。默认本地示例不发送 `Authorization` 请求头，也不需要云平台密钥。
+
+### 方案一：Ollama
+
+先安装 Ollama，然后在终端准备模型和服务。若 Ollama 已作为系统服务运行，无需再次执行 `ollama serve`。
+
+```bash
+ollama pull qwen2.5:7b
+ollama serve
+```
+
+在另一个终端确认兼容接口可以访问：
+
+```bash
+curl http://127.0.0.1:11434/v1/models
+```
+
+新用户目录已经包含以下配置；如果是旧用户目录，把相应表加入 `~/.futurework/models.toml`，或按实际端口、模型名修改已有表：
+
+```toml
+[providers.ollama]
+adapter = "openai_chat"
+base_url = "http://127.0.0.1:11434/v1"
+allow_no_key = true
+allow_insecure_http = false
+
+[models.ollama_local]
+provider = "ollama"
+remote_id = "qwen2.5:7b"
+supports_tools = false
+```
+
+`remote_id` 必须是 Ollama 中实际存在的模型名；可以运行 `ollama list` 核对。接着把 `~/.futurework/agents/assistant.toml` 中的 `[model] id` 改为 `ollama_local`，让小未的聊天、任务判断和群中控也使用本地模型：
+
+```toml
+[model]
+id = "ollama_local"
+```
+
+如果希望**自动新建的 Agent**也默认使用 Ollama，把 `~/.futurework/app.toml` 中的 `[model] default_model` 改为 `ollama_local`。已有好友不会跟着改变；请逐个修改 `~/.futurework/agents/<好友ID>.toml` 的 `[model] id`，或者在页面为好友改模型。检查配置并重启：
+
+```bash
+futurework doctor
+futurework serve
+```
+
+小未和所有会参与的好友都选用本地别名后，正常对话不需要 `DEEPSEEK_API_KEY`。本地模型本身仍需有足够资源运行，并能按 OpenAI Chat Completions 格式返回文本。
+
+### 方案二：vLLM
+
+安装与模型下载由 vLLM 自身负责。以下示例把 vLLM 放在 `8001` 端口，避开 FutureWork 默认的 `8000` 端口：
+
+```bash
+vllm serve Qwen/Qwen2.5-7B-Instruct --host 127.0.0.1 --port 8001
+curl http://127.0.0.1:8001/v1/models
+```
+
+新用户目录中的对应配置为：
+
+```toml
+[providers.vllm]
+adapter = "openai_chat"
+base_url = "http://127.0.0.1:8001/v1"
+allow_no_key = true
+allow_insecure_http = false
+
+[models.vllm_local]
+provider = "vllm"
+remote_id = "Qwen/Qwen2.5-7B-Instruct"
+supports_tools = false
+```
+
+将小未、已有好友和自动新建 Agent 的模型别名按上一节的方法改为 `vllm_local`。如果 vLLM 使用了 `--served-model-name`，`remote_id` 要与其公开的名称一致。若推理服务要求 Bearer 密钥，在 Provider 表中填写 `api_key_env = "你的环境变量名"`，并把 `allow_no_key` 设为 `false`；密钥仍由环境变量提供。
+
+### 局域网或容器中的推理服务
+
+推理服务运行在另一台局域网机器、容器或 `host.docker.internal` 上时，把 `base_url` 改为客户端实际能访问的地址。非环回地址使用明文 HTTP 必须显式开启 `allow_insecure_http = true`，例如：
+
+```toml
+[providers.office_ollama]
+adapter = "openai_chat"
+base_url = "http://192.168.1.20:11434/v1"
+allow_no_key = true
+allow_insecure_http = true
+
+[models.office_local]
+provider = "office_ollama"
+remote_id = "qwen2.5:7b"
+supports_tools = false
+```
+
+这项开关只允许用户明确配置的非加密 HTTP 地址；跨机器传输可能被所在网络观察，能提供 HTTPS 时优先使用 HTTPS。服务绑定在 `0.0.0.0` 时，客户端仍应填写可访问的具体 IP 或主机名。修改后运行 `futurework doctor`，再用 `/v1/models` 检查地址及模型名。
+
+本地示例把 `supports_tools` 设为 `false`，因为不同模型和服务对工具调用的支持不一致。只有在本地服务确实支持 OpenAI 兼容 `tools`/`tool_calls` 请求与响应时，才把它改为 `true`；否则文本对话仍可用，但不会调用内置工具。
+
+## 模型配置说明
+
+`~/.futurework/models.toml` 把**平台连接**和**模型别名**分开。`[providers.<名称>]` 指定协议适配器、接口根地址、密钥环境变量；`[models.<别名>]` 指定平台、平台原生模型 ID 和工具能力。Agent 只引用模型别名。实际请求地址是 Provider 的 `base_url` 后接 `/chat/completions`；Anthropic 使用其 Messages 协议。
+
+| 平台或示例 | 默认别名 | 密钥环境变量 |
+| --- | --- | --- |
+| DeepSeek | `default_fast`、`deepseek_chat` | `DEEPSEEK_API_KEY` |
+| Kimi | `kimi_k3` | `MOONSHOT_API_KEY` |
+| MiniMax | `minimax_m3` | `MINIMAX_API_KEY` |
+| 小米 MiMo | `mimo_default` | `MIMO_API_KEY` |
+| OpenAI GPT | `gpt_default` | `OPENAI_API_KEY` |
+| Claude | `claude_default` | `ANTHROPIC_API_KEY` |
+| 阿里云千问 | `aliyun_qwen_plus` | `DASHSCOPE_API_KEY` |
+| 智谱 | `zhipu_glm` | `ZHIPU_API_KEY` |
+| OpenRouter | `openrouter_default` | `OPENROUTER_API_KEY` |
+| Ollama | `ollama_local` | 默认不需要 |
+| vLLM | `vllm_local` | 默认不需要 |
+
+这些是**可编辑的示例别名**，不是对第三方账号权限或模型可用性的保证。供应商若调整模型名、端点或参数，请修改对应 TOML。可以自行新增符合 OpenAI Chat Completions 协议的平台；`adapter = "openai_chat"` 即可复用现有适配器。当前并不支持任意自定义 HTTP 响应格式。请求的超时、重试、温度和默认输出长度由 `~/.futurework/app.toml` 的 `[model]` 管理；模型条目还可以单独设置 `temperature`、`max_output_tokens`。当前实现只有文本模型请求，图像/视频生成以及视觉输入不在此版本范围内。
+
+## Agent 好友和群聊
+
+小未由 `~/.futurework/agents/assistant.toml` 定义，其余好友分别由 `agents/<ID>.toml` 定义。文件名必须与配置中的 `id` 一致；例如 `research.toml` 中必须有 `id = "research"`。一个简化的好友配置：
+
+```toml
+schema_version = 1
+id = "research"
+name = "知知"
+role = "研究与洞察"
+kind = "friend"
+status = "active"
+tools = ["calculator"]
+
+[model]
+id = "ollama_local"
+
+[capabilities]
+"research.web" = 0.9
+```
+
+用户在小未的聊天区发消息时，系统先判断是聊天还是任务。任务按 `app.toml` 中的 `[[planner.rules]]` 关键词形成步骤，再依据 Agent 能力分值和 `[matching]` 阈值选择好友；缺少合适好友时创建新的 TOML 文件并给予最小默认权限。该过程是当前版本的规则规划与模型协作，不是通用的自主多步规划引擎。
+
+每个群由 `~/.futurework/teams/<ID>.toml` 定义。群成员填写 Agent ID，不复制成员的模型或工具配置。`swarm` 没有中控；`controlled` 的 `[controller] agent_id` 必须是 `assistant`。示例：
+
+```toml
+schema_version = 1
+id = "launch"
+name = "产品发布小组"
+status = "active"
+members = ["design", "write", "plan"]
+mode = "controlled"
+
+[reply]
+max_responders_per_round = 3
+max_rounds = 2
+max_total_model_calls = 8
+
+[controller]
+agent_id = "assistant"
+```
+
+小未私聊、好友私聊与群聊分别读取各自的会话历史。群里的成员回复留在群会话中，不会写进对应好友的私聊。执行层将单次 Agent 身份、会话历史、模型别名和工具授权组成 `AgentRun` 对象，再通过 `ModelRequest`、`ModelResult`、`ToolRequest` 和 `ToolResult` 对象传递模型与工具数据。HTTP、TOML 和 SQLite 边界使用普通映射，进入运行层时转换为对象。
+
+## 工具、权限与审批
+
+| 工具名 | 能力 | 约束 |
+| --- | --- | --- |
+| `calculator` | 基础算术 | 只解析受限算术表达式，不执行 Python 代码；默认授予新建 Agent 和示例 Agent。 |
+| `read_file` | 读取 UTF-8 文本文件 | 仅在配置的工作区内读取，限制文件大小和返回行数。 |
+| `glob_files` | 按文件名模式枚举文件 | 仅在工作区内搜索，限制扫描量和返回数量。 |
+| `grep_files` | 在工作区文本中查找正则表达式 | 限制单文件大小、扫描量和返回长度。 |
+
+默认工作区是 `~/.futurework/workspace/`。调整 `~/.futurework/app.toml` 的 `[tool_runtime] workspace` 可改变路径；同一配置表还控制工具轮数、每轮调用数、文件大小和输出长度。工具真正执行前会再次检查该 Agent 的 `tools` 授权。文件工具不能通过 `../` 或指向工作区外的符号链接读取外部文件。
+
+页面为好友增加文件工具授权时会产生**配置变更审批**，批准后写回该好友 TOML。现阶段没有每次工具调用单独弹窗审批；已经授权的工具会在模型请求时直接执行。手工编辑用户自己的 Agent TOML 也可以改变授权，重启后生效。请按实际需求授予最小权限，不要把 `tools` 列表当作已实现工具的清单：只有上表四个名称接入了执行器。
+
+手工安装 Skill：把 `SKILL.md` 放在 `~/.futurework/skills/<技能ID>/`，然后在目标好友 TOML 中显式写入：
+
+```toml
+[extensions]
+skills = ["技能ID"]
+```
+
+重启后该好友的模型上下文会附加 Skill 文本；其他好友和群聊不会因此自动获得新权限。`~/.futurework/workflows/` 与 `~/.futurework/mcp/` 已预留配置位置，但执行器尚未接入。
+
+## 用户数据目录
+
+安装包的源码位于 `src/futurework/`，运行数据放在用户目录中。默认结构：
+
+```text
+~/.futurework/
+├── app.toml                 # 服务、模型、规划、权限和工具运行参数
+├── models.toml              # 平台实例与模型别名
+├── agents/                 # 每位 Agent 好友的 TOML；assistant.toml 是小未
+├── teams/                  # 群聊 TOML
+├── skills/                 # 人工安装的 Skill
+├── workflows/              # 预留的 Workflow 定义
+├── mcp/                    # 预留的 MCP 连接定义
+├── workspace/              # 内置文件工具的默认工作区
+├── memory/                 # 按助理、好友和群预留的独立记忆目录
+├── data/                   # SQLite 与其他运行数据
+├── logs/                   # 运行日志目录
+└── cache/                  # 可重建缓存
+```
+
+首次初始化也会写入其他配置文件，例如 `tools.toml`、`matching.toml`、`planner.toml`、`runtime.toml`、`context.toml`、`extensions.toml`。它们中部分字段仍用于目标架构或后续扩展，不能仅凭目录存在判断功能已经完成。初始化时在用户目录生成的子目录说明文件是**用户本地文件**；仓库 GitHub 只跟踪根目录这一份 `README.md`。
+
+## 页面与接口
+
+页面左侧可以折叠好友和群聊；中央是当前会话；右侧可查看最近消息、展开全部对话或筛选待审批。打开好友对话可以修改模型、工具和配置审批选项。前端正式资源打包在 `src/futurework/web/`，`frontend/` 保存早期静态设计原型。
+
+主要接口都以 `/api/v1` 开头：
+
+| 接口 | 用途 |
+| --- | --- |
+| `GET /health`、`GET /bootstrap` | 健康状态和页面初始化数据。 |
+| `GET /agents`、`POST /agents`、`PATCH /agents/{id}` | 查看、创建和调整好友配置。 |
+| `GET /conversations`、`GET/POST /conversations/{id}/messages` | 列出会话、读取和发送消息。 |
+| `POST /groups` | 创建群聊。 |
+| `GET /inbox?view=recent|all|approvals` | 最近消息、全部消息、待审批视图。 |
+| `GET /approvals`、`POST /approvals/{id}/decision` | 查看并处理配置审批。 |
+| `GET /tasks/{id}` | 查看任务和步骤状态。 |
+| `GET /events` | 服务发送事件流，用于页面更新。 |
+
+发送消息需要提供 `client_message_id`，以便重复请求按 ID 识别。完整请求结构和实时参数以运行服务后的 <http://127.0.0.1:8000/docs> 为准。详细设计分别见 [系统设计文档](docs/system-design.md) 和 [工程目录设计](docs/project-structure.md)；这两份文档包含目标方案，现有实现以本 README 的能力表和代码为准。
+
+## 开发、测试与常见问题
+
+在仓库根目录安装测试依赖并运行测试：
+
+```bash
+python -m pip install -e '.[test]'
+python -m pytest -q
+```
+
+测试使用临时用户目录和模拟 HTTP 响应，不需要真实云平台密钥，也不会自动下载 Ollama/vLLM 模型。要预览早期静态设计原型，可在仓库根目录运行 `python -m http.server 4173`，然后打开 <http://127.0.0.1:4173/frontend/>。
+
+**启动后提示缺少 `DEEPSEEK_API_KEY`：** 检查小未的 `agents/assistant.toml` 和正在参与回复的好友 TOML 是否仍引用 `default_fast`。只改 `app.toml` 的默认模型仅影响后来自动创建的 Agent。
+
+**本地模型连接失败：** 先用 `curl <base_url>/models` 检查本地服务；核对端口、模型实际名称和服务绑定地址。FutureWork 默认使用 `8000`，示例 vLLM 使用 `8001`。局域网 HTTP 需要 `allow_insecure_http = true`。
+
+**模型返回 404 或参数错误：** 检查 `remote_id` 是否与服务公开的模型名相同，以及服务是否提供 OpenAI 兼容的 `/v1/chat/completions`。默认本地示例关闭工具调用；如果本地模型不支持工具协议，不要把 `supports_tools` 改为 `true`。
+
+**改了 TOML 却没有生效：** 当前配置在服务启动时读取；运行 `futurework doctor` 检查，再重启 `futurework serve`。用户目录现有文件不会因升级自动覆盖。
+
+**页面显示某工具已授权却没有执行：** 目前只有四个英文工具名真正实现；其他旧名称仍是界面的配置选项。检查 Agent TOML 的 `tools` 列表、模型的 `supports_tools` 和本地模型是否真的支持工具调用。

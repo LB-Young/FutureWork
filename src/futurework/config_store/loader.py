@@ -3,6 +3,7 @@
 import re
 import tomllib
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from futurework.extension_system.skill_loader import load_skills
 
@@ -53,8 +54,13 @@ def load_user_config(home: Path) -> dict:
         if provider.get("adapter") not in {"openai_chat", "anthropic_messages"}:
             raise ValueError(f"Unknown adapter for provider {provider_id}")
         url = provider.get("base_url", "")
-        local = url.startswith(("http://127.0.0.1:", "http://localhost:"))
-        if not (url.startswith("https://") or local) or (not provider.get("api_key_env") and not (local and provider.get("allow_no_key"))):
+        parts = urlsplit(url)
+        loopback = parts.hostname in {"127.0.0.1", "localhost", "::1"}
+        http_allowed = parts.scheme == "http" and (loopback or provider.get("allow_insecure_http") is True)
+        if (not parts.hostname or parts.scheme not in {"http", "https"}
+                or not (parts.scheme == "https" or http_allowed)
+                or parts.username or parts.password or parts.query or parts.fragment
+                or (not provider.get("api_key_env") and provider.get("allow_no_key") is not True)):
             raise ValueError(f"Invalid endpoint or key reference for provider {provider_id}")
     for alias, model in models.get("models", {}).items():
         if model.get("provider") not in providers or not model.get("remote_id"):
