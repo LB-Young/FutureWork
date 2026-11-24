@@ -22,6 +22,7 @@ FutureWork 是一个可以在本机安装和运行的 Agent 团队应用。界�
 | --- | --- |
 | 个人助理 | 「小未」区分聊天和任务；任务按配置的关键词拆分、匹配 Agent，缺少对应能力时创建 Agent 配置并分派。 |
 | 对话执行入口 | HTTP 消息先归一化为 `RunParams`，再由 `TaskFactory` 创建五种类型之一的 `Task`；`TaskRuntime` 按类型执行，重复消息 ID 不再重复分类或执行。 |
+| 对象调用链 | `TaskRuntime` 持有助理、私聊、群聊 Runtime；`AgentRuntime` 持有模型网关，单次运行创建授权工具注册表；API 持有消息、Agent 和群聊服务对象。 |
 | Agent 好友 | 每位好友由独立 TOML 定义，拥有自己的模型、能力、工具授权和私聊历史。 |
 | 群聊 | `swarm` 模式由成员轮流响应；`controlled` 模式由小未选择成员，必要时汇总多人回复。群聊读取本群自己的历史。 |
 | 模型 | 支持 OpenAI 兼容文本接口、Anthropic Messages 接口，以及 Bamboo 风格的公司 HTTP 模型代理；预置多家云平台与本地部署示例。只有选中的模型才需要可用。 |
@@ -263,6 +264,8 @@ agent_id = "assistant"
 小未私聊、好友私聊与群聊分别读取各自的会话历史。群里的成员回复留在群会话中，不会写进对应好友的私聊。执行层将单次 Agent 身份、会话历史、模型别名和工具授权组成 `AgentRun` 对象，再通过 `ModelRequest`、`ModelResult`、`ToolRequest` 和 `ToolResult` 对象传递模型与工具数据。HTTP、TOML 和 SQLite 边界使用普通映射，进入运行层时转换为对象。
 
 当前消息执行链为 `POST /conversations/{id}/messages → RunParams.from_http → TaskFactory.create → TaskRuntime.run → 对应助理、好友或群聊 Runtime`。`RunParams` 包含入口来源、会话目标快照、消息正文及客户端消息 ID；助理消息先分类为聊天或分派任务。工厂只创建对象，不调用模型、不写数据库。五种 Task 类型是 `assistant_chat`、`assistant_delegation`、`agent_chat`、`group_swarm` 和 `group_controlled`。分派任务持久化任务和步骤，并把同一个 Task 对象交给后台执行；其他对话只保留原有消息记录与 API 响应。查询、配置修改和审批接口仍走各自的业务路径，不会伪装成 Agent 对话任务。
+
+运行时依赖在启动时装配一次：`TaskPlanner` 负责规则拆解和 Agent 匹配；`AssistantRuntime` 负责小未的意图判断和已分派步骤，`DirectChatRuntime` 负责好友私聊，`GroupChatRuntime` 持有 `SwarmPolicy` 或 `GroupController`。它们共享 `AgentRuntime`，后者用 `AgentRun` 固定身份、模型别名、会话历史与工具授权，再调用 `ModelGateway`。模型网关按别名缓存 `ModelAdapter` 实例并按配置重试；单次 Agent 运行的 `ToolRegistry` 同时提供模型可见的工具 schema 和执行时授权检查。`MessageService`、`AgentService`、`GroupService` 负责写入与配置同步。保留的少量模块函数是旧调用方的兼容入口，核心请求路径通过对象方法调用。
 
 ## 工具、权限与审批
 

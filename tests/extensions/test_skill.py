@@ -17,12 +17,12 @@ def test_user_skill_is_scoped_to_enabled_agent(tmp_path, monkeypatch):
     config = load_config(home)
     prompts = []
 
-    async def fake_generate(request, settings):
+    async def fake_generate(self, request):
         from futurework.integrations.model_gateway.types import ModelResult
         prompts.append(request.messages[0]["content"])
         return ModelResult(text="回复")
 
-    monkeypatch.setattr("futurework.model.generate", fake_generate)
+    monkeypatch.setattr("futurework.integrations.model_gateway.gateway.ModelGateway.generate", fake_generate)
     research = {"id": "research", "name": "知知", "role": "研究", "model": "default_fast"}
     code = {"id": "code", "name": "阿码", "role": "开发", "model": "default_fast"}
     asyncio.run(respond(research, [{"from": "me", "text": "研究一下"}], config))

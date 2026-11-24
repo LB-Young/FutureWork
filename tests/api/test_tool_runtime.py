@@ -9,7 +9,7 @@ from futurework.config import load_config
 from futurework.home import ensure_home
 from futurework.integrations.model_gateway.adapters import anthropic, openai_chat
 from futurework.model import respond
-from futurework.runtime.tool_dispatch import ToolRequest, execute
+from futurework.runtime.tool_dispatch import ToolRegistry, ToolRequest, execute
 
 
 def test_openai_compatible_tool_round_trip(tmp_path, monkeypatch):
@@ -67,6 +67,14 @@ def test_tool_grants_and_workspace_boundary(tmp_path):
     assert execute(ToolRequest("research", "read_file", {"path": "note.txt"}), ["read_file"], config).content == "safe text"
     assert not execute(ToolRequest("research", "read_file", {"path": "../app.toml"}), ["read_file"], config).success
     assert not execute(ToolRequest("research", "read_file", {"path": "outside.txt"}), ["read_file"], config).success
+
+
+def test_tool_registry_rejects_another_agents_request(tmp_path):
+    config = load_config(ensure_home(tmp_path / "home"))
+    registry = ToolRegistry("research", ("calculator",), config)
+    assert [item["function"]["name"] for item in registry.schemas()] == ["calculator"]
+    result = registry.execute_sync(ToolRequest("code", "calculator", {"expression": "2+3"}))
+    assert not result.success
 
 
 def test_local_model_catalog_and_no_key(tmp_path, monkeypatch):

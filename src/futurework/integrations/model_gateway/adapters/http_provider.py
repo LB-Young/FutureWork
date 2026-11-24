@@ -10,6 +10,7 @@ from urllib.parse import urlsplit
 import httpx
 
 from futurework.integrations.model_gateway.types import ModelRequest, ModelResult, ToolCall
+from futurework.integrations.model_gateway.adapters.base import ModelAdapter
 
 
 ENV_REFERENCE = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$")
@@ -100,33 +101,42 @@ def _parse(data: object) -> ModelResult:
     return ModelResult(text=content.strip(), tool_calls=calls)
 
 
-async def generate(request: ModelRequest, provider: dict, model: dict, options: dict) -> ModelResult:
-    """POST a Bamboo-compatible envelope to the exact configured endpoint."""
-    env_name = provider.get("api_key_env", "")
-    key = os.environ.get(env_name, "") if env_name else ""
-    if not key and not provider.get("allow_no_key", False):
-        raise RuntimeError(f"缺少模型密钥环境变量 {env_name}")
-    headers = {"Content-Type": "application/json"}
-    headers.update({name: _resolve(value) for name, value in provider.get("extra_headers", {}).items()})
-    headers.update({name: _resolve(value) for name, value in model.get("extra_headers", {}).items()})
-    if key:
-        headers.setdefault("Authorization", f"Bearer {key}")
+class HttpProviderAdapter(ModelAdapter):
+    """Translate requests for the configured provider instance."""
 
-    extra = model.get("extra_body", {})
-    overrides = extra.get("request", {})
-    if not isinstance(overrides, dict):
-        raise ValueError("extra_body.request 必须是 TOML 表")
-    request_body = {"max_completion_tokens": model.get("max_output_tokens", options["max_output_tokens"]),
-                    "messages": _messages(request), **overrides}
-    temperature = model.get("temperature", options.get("temperature"))
-    if temperature is not None:
-        request_body["temperature"] = temperature
-    if request.tools and model.get("supports_tools", True):
-        request_body["tools"] = request.tools
-    payload = {"model": model["remote_id"].removeprefix("local_"),
-               "request": request_body, "timeout": int(extra.get("timeout", 30))}
-    payload.update({name: value for name, value in extra.items() if name not in {"request", "timeout"}})
-    async with httpx.AsyncClient(timeout=model.get("timeout_seconds", options["timeout_seconds"])) as client:
-        response = await client.post(_endpoint(provider), headers=headers, json=payload)
-        response.raise_for_status()
-        return _parse(response.json())
+    async def generate(self, request: ModelRequest) -> ModelResult:
+        """POST a Bamboo-compatible envelope to the exact configured endpoint."""
+        provider, model, options = self.provider, self.model, self.options
+        env_name = provider.get("api_key_env", "")
+        key = os.environ.get(env_name, "") if env_name else ""
+        if not key and not provider.get("allow_no_key", False):
+            raise RuntimeError(f"缺少模型密钥环境变量 {env_name}")
+        headers = {"Content-Type": "application/json"}
+        headers.update({name: _resolve(value) for name, value in provider.get("extra_headers", {}).items()})
+        headers.update({name: _resolve(value) for name, value in model.get("extra_headers", {}).items()})
+        if key:
+            headers.setdefault("Authorization", f"Bearer {key}")
+
+        extra = model.get("extra_body", {})
+        overrides = extra.get("request", {})
+        if not isinstance(overrides, dict):
+            raise ValueError("extra_body.request 必须是 TOML 表")
+        request_body = {"max_completion_tokens": model.get("max_output_tokens", options["max_output_tokens"]),
+                        "messages": _messages(request), **overrides}
+        temperature = model.get("temperature", options.get("temperature"))
+        if temperature is not None:
+            request_body["temperature"] = temperature
+        if request.tools and model.get("supports_tools", True):
+            request_body["tools"] = request.tools
+        payload = {"model": model["remote_id"].removeprefix("local_"),
+                   "request": request_body, "timeout": int(extra.get("timeout", 30))}
+        payload.update({name: value for name, value in extra.items() if name not in {"request", "timeout"}})
+        async with httpx.AsyncClient(timeout=model.get("timeout_seconds", options["timeout_seconds"])) as client:
+            response = await client.post(_endpoint(provider), headers=headers, json=payload)
+            response.raise_for_status()
+            return _parse(response.json())
+
+
+async def generate(request: ModelRequest, provider: dict, model: dict, options: dict) -> ModelResult:
+    """Compatibility entry point for direct adapter callers."""
+    return await HttpProviderAdapter(provider, model, options).generate(request)

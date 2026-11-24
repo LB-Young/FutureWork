@@ -389,6 +389,8 @@ supports_streaming = true
 
 **当前版本的入口对象链：** API 读取会话配置并将消息归一化为 `RunParams(source, target, message, client_message_id)`；`TaskRuntime.handle` 先按客户端消息 ID 检查幂等，仅对新的小未消息做聊天/任务分类；`TaskFactory.create` 根据分类、会话类型和群模式创建 `Task(id, kind, params)`。工厂不访问数据库或模型。`TaskRuntime.run` 按 `assistant_chat`、`assistant_delegation`、`agent_chat`、`group_swarm`、`group_controlled` 分流；助理分派将同一 Task 对象交给后台步骤执行。好友私聊只取好友会话历史，群聊只取群历史；群模式在建 Task 时决定，后续按 `Task.kind` 执行。重复提交同一客户端消息 ID 返回原消息/任务 ID，跨会话复用返回冲突。这里的 Task 是一次对话执行对象；目前只有助理分派任务写入 `tasks`/`task_steps` 表，普通聊天和群聊不新增持久任务行。只读查询、配置修改和审批有独立业务语义，保持各自入口，不创建 Agent Task。
 
+**当前版本的依赖装配：** FastAPI 启动时构造 `MessageService`、`AgentService`、`GroupService`、`AgentRuntime` 和 `TaskRuntime`。`TaskRuntime` 持有 `TaskPlanner`、`AssistantRuntime`、`DirectChatRuntime`、`GroupChatRuntime`；群运行时持有 `SwarmPolicy` 与 `GroupController`。`AgentRuntime.run(AgentRun)` 将当前会话范围内的历史与授权交给 `ModelGateway` 和单次运行的 `ToolRegistry`；模型网关按模型别名创建并缓存实现 `ModelAdapter` 的平台适配器，工具注册表用同一份授权生成 schema 并执行工具。API 不再实现消息写入、Agent 创建或群聊创建的 SQL 细节。兼容旧调用方的 `respond()`、`generate()`、`execute_async()` 等模块函数会新建对应对象；生产消息链使用已装配的对象。完整的上下文快照、持久运行 checkpoint 和跨进程恢复仍是目标设计，不能把当前对象化等同于这些能力已经完成。
+
 | Runtime | 负责的会话 | 上下文作用域 | 核心职责 |
 | --- | --- | --- | --- |
 | `AssistantRuntime` | 用户 ↔ 小未 | `(workspace_id, "assistant", "assistant")` | 理解目标、规划、分派、创建 Agent 配置草案、跟踪和汇总任务 |

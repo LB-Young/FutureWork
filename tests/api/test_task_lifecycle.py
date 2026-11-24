@@ -31,16 +31,16 @@ def test_factory_routes_every_conversation_execution_type():
 def test_duplicate_assistant_request_does_not_reclassify_or_reexecute(tmp_path, monkeypatch):
     calls = {"classify": 0, "respond": 0}
 
-    async def classify(text, history, config):
+    async def classify(self, text, history):
         calls["classify"] += 1
         return "chat"
 
-    async def respond(agent, history, config):
+    async def respond(self, agent, history):
         calls["respond"] += 1
         return "你好"
 
-    monkeypatch.setattr("futurework.api.app.classify_message", classify)
-    monkeypatch.setattr("futurework.api.app.respond", respond)
+    monkeypatch.setattr("futurework.runtime.assistant_runtime.AssistantRuntime.classify", classify)
+    monkeypatch.setattr("futurework.model.AgentRuntime.respond", respond)
     client = TestClient(create_app(ensure_home(tmp_path / "home")))
     payload = {"client_message_id": str(uuid4()), "body": "你好"}
     first = client.post("/api/v1/conversations/assistant/messages", json=payload)
@@ -55,15 +55,15 @@ def test_duplicate_assistant_request_does_not_reclassify_or_reexecute(tmp_path, 
 def test_duplicate_delegation_reuses_persisted_task(tmp_path, monkeypatch):
     calls = {"classify": 0}
 
-    async def classify(text, history, config):
+    async def classify(self, text, history):
         calls["classify"] += 1
         return "task"
 
-    async def respond(agent, history, config):
+    async def respond(self, agent, history):
         return "初稿已完成"
 
-    monkeypatch.setattr("futurework.api.app.classify_message", classify)
-    monkeypatch.setattr("futurework.api.app.respond", respond)
+    monkeypatch.setattr("futurework.runtime.assistant_runtime.AssistantRuntime.classify", classify)
+    monkeypatch.setattr("futurework.model.AgentRuntime.respond", respond)
     client = TestClient(create_app(ensure_home(tmp_path / "home")))
     payload = {"client_message_id": str(uuid4()), "body": "请做竞品分析"}
     first = client.post("/api/v1/conversations/assistant/messages", json=payload)

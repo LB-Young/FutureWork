@@ -9,6 +9,8 @@ from futurework.config import load_config
 from futurework.home import ensure_home
 from futurework.model import respond
 from futurework.integrations.model_gateway.adapters import openai_chat
+from futurework.integrations.model_gateway.gateway import ModelGateway
+from futurework.integrations.model_gateway.types import ModelRequest, ModelResult
 
 
 def test_deepseek_adapter_uses_environment_and_never_needs_a_file_key(tmp_path, monkeypatch):
@@ -48,3 +50,21 @@ def test_gateway_retries_a_transient_deepseek_response(tmp_path, monkeypatch):
     agent = {"id": "research", "name": "知知", "role": "研究", "model": "default_fast"}
     assert asyncio.run(respond(agent, [{"from": "me", "text": "你好"}], config)) == "已恢复"
     assert len(attempts) == 2
+
+
+def test_gateway_reuses_an_adapter_for_the_same_model_alias(tmp_path):
+    config = load_config(ensure_home(tmp_path / "home"))
+    instances = []
+
+    class FakeAdapter:
+        def __init__(self, provider, model, options):
+            instances.append(self)
+
+        async def generate(self, request):
+            return ModelResult(text=request.alias)
+
+    gateway = ModelGateway(config, adapters={"openai_chat": FakeAdapter})
+    request = ModelRequest(alias="default_fast", messages=[{"role": "user", "content": "你好"}])
+    assert asyncio.run(gateway.generate(request)).text == "default_fast"
+    assert asyncio.run(gateway.generate(request)).text == "default_fast"
+    assert len(instances) == 1
