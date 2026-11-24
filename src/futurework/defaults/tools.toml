@@ -1,0 +1,5 @@
+# Tool risk classes and approval defaults. This is a schema placeholder.
+schema_version = 1
+
+[policy]
+default = "deny"

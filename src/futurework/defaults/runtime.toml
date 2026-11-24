@@ -1,0 +1,7 @@
+# Hard limits for future assistant, direct, and group runtimes.
+schema_version = 1
+
+[limits]
+max_turns = 8
+max_model_calls = 16
+max_parallel_agents = 3

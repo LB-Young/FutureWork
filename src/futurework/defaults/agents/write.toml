@@ -1,0 +1,13 @@
+# Built-in sample definition for a writing Agent friend.
+schema_version = 1
+id = "write"
+name = "言言"
+role = "内容与文案"
+kind = "friend"
+status = "active"
+
+[model]
+id = "default_fast"
+
+[capabilities]
+"writing.copy" = 0.9

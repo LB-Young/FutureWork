@@ -1,6 +1,6 @@
 # FutureWork 工程目录设计
 
-状态：设计稿。当前设计分支只有静态页面原型和文档；下文的包结构、用户目录、Runtime 和适配器均为目标架构，尚未在此分支实现。此前的实验性实现保留在 `feat/user-home-package` 分支，供以后决定开发时参考。
+状态：目标架构与开发骨架。当前开发分支已建立可安装的 `src/futurework/` 目录、逐层说明文档、用户目录初始化与配置校验；Runtime、模型适配器和扩展执行仍只有职责文件，尚未实现业务逻辑。此前的实验性实现保留在 `feat/user-home-package` 分支供参考。
 
 ## 1. 核心原则
 
@@ -209,7 +209,7 @@ FutureWork/
         └── tools/<publisher>/<id>/<version>/
 ```
 
-这是**目标模块组织方式**。未来 Python 代码放在可安装包 `src/futurework/`；上面的 `backend/` 和 `frontend/` 表达后端模块与页面资源的职责，不要求按这棵概念树在仓库根目录创建同名文件夹。`config/` 和 `data/extensions/` 所指的可写内容规划放在 `~/.futurework/`：`app.toml`、`models.toml`、`agents/`、`teams/`、`skills/`、`mcp/`、`workflows/`、`memory/`、`data/`。内置默认文件随包发布，首次运行复制到用户目录；以后以用户目录为准。当前分支的静态页面原型位于 `frontend/`。
+这是**目标模块组织方式**。Python 包位于 `src/futurework/`；上面的 `backend/` 和 `frontend/` 表达后端模块与页面资源的职责，不要求按这棵概念树在仓库根目录创建同名文件夹。`config/` 和 `data/extensions/` 所指的可写内容规划放在 `~/.futurework/`：`app.toml`、`models.toml`、`agents/`、`teams/`、`skills/`、`mcp/`、`workflows/`、`memory/`、`data/`。内置默认文件随包发布，首次运行复制到用户目录；以后以用户目录为准。当前静态页面原型位于 `frontend/`，其组件目录仍是骨架。
 
 ## 3. 配置文件契约
 
@@ -409,7 +409,7 @@ supports_streaming = true
 
 `runtime.toml` 统一定义最大循环次数、超时、重试、并发、token/费用硬上限和 checkpoint 周期；Agent TOML、群 TOML 只能在硬上限内收紧。`RunSpec` 固定 `agent_config_version?`、`group_config_version?`、`scope_key`、`context_cursor`、`task_id?` 和权限快照。权限变化只影响新运行；已暂停运行恢复时仍需重新检查敏感工具授权和审批有效期。
 
-**当前设计分支：** 群聊只有静态交互演示。多平台网关、两种群模式、三个独立 Runtime、群成员子执行记录和可恢复 checkpoint 均为后续开发目标。
+**当前开发骨架：** Team TOML 中已有 `mode` 字段与基础校验，群聊交互仍只有静态演示。多平台网关、两种群模式的执行、三个独立 Runtime、群成员子执行记录和可恢复 checkpoint 均为后续开发目标。
 
 ### 3.5 Tool、Skill、MCP 与 Workflow 扩展目录
 

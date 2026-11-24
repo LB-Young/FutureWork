@@ -1,0 +1,16 @@
+# Built-in sample Team coordinated by the personal assistant.
+schema_version = 1
+id = "launch"
+name = "产品发布小组"
+status = "active"
+members = ["design", "write", "plan"]
+mode = "controlled"
+
+[reply]
+max_responders_per_round = 3
+max_rounds = 2
+max_total_model_calls = 8
+
+[controller]
+agent_id = "assistant"
+selection_policy = "mention_then_capability"

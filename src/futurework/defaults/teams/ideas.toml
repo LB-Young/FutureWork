@@ -1,0 +1,12 @@
+# Built-in sample Team without a central controller.
+schema_version = 1
+id = "ideas"
+name = "灵感碰撞室"
+status = "active"
+members = ["research", "design", "write"]
+mode = "swarm"
+
+[reply]
+max_responders_per_round = 3
+max_rounds = 2
+max_total_model_calls = 8

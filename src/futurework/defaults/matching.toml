@@ -1,0 +1,8 @@
+# Agent matching weights; matching execution is not wired yet.
+schema_version = 1
+
+[weights]
+capability = 0.55
+success = 0.20
+load = 0.15
+cost = 0.10

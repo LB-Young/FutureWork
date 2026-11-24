@@ -1,0 +1,13 @@
+# Built-in sample definition for the personal assistant.
+schema_version = 1
+id = "assistant"
+name = "小未"
+role = "个人助理与任务协调"
+kind = "assistant"
+status = "active"
+
+[model]
+id = "default_fast"
+
+[capabilities]
+"planning.general" = 1.0

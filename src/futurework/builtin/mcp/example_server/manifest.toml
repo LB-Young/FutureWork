@@ -1,0 +1,6 @@
+# Disabled MCP connection example; credentials belong in environment variables.
+schema_version = 1
+id = "example_server"
+version = "0.1.0"
+kind = "mcp"
+enabled = false

@@ -1,3 +1,4 @@
+/* Static Agent Team interaction prototype. It uses local in-memory examples and does not call the Python API. */
 const agents = [
   { id: 'research', name: '知知', role: '研究与洞察', icon: '知', color: '#e7e8fa', ink: '#7873ad', tools: ['网页搜索', '文件读取'], model: 'GPT-5.1', approval: true },
   { id: 'design', name: '小绘', role: '产品与视觉设计', icon: '绘', color: '#fae7dd', ink: '#c28464', tools: ['文件读取', '图像生成'], model: 'Claude Sonnet 4.5', approval: true },

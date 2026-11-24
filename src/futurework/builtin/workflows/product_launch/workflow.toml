@@ -1,0 +1,11 @@
+# Product launch Workflow shape; the runner is not connected yet.
+schema_version = 1
+id = "product_launch"
+version = "0.1.0"
+enabled = false
+
+[[steps]]
+id = "research"
+kind = "agent_task"
+capability = "research.web"
+depends_on = []

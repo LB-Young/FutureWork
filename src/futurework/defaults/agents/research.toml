@@ -1,0 +1,13 @@
+# Built-in sample definition for a research Agent friend.
+schema_version = 1
+id = "research"
+name = "知知"
+role = "研究与洞察"
+kind = "friend"
+status = "active"
+
+[model]
+id = "default_fast"
+
+[capabilities]
+"research.web" = 0.9

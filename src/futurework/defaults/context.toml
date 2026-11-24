@@ -1,0 +1,5 @@
+# Context retention and summarization defaults; runtime use is pending.
+schema_version = 1
+
+[retention]
+memory_days = 180

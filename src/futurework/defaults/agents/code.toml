@@ -1,0 +1,13 @@
+# Built-in sample definition for a software engineering Agent friend.
+schema_version = 1
+id = "code"
+name = "阿码"
+role = "开发与自动化"
+kind = "friend"
+status = "active"
+
+[model]
+id = "default_fast"
+
+[capabilities]
+"engineering.code" = 0.9

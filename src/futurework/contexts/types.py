@@ -1,0 +1,6 @@
+"""Define typed ScopeKey and context snapshot references shared by all runtimes.
+
+This module defines an architectural boundary. Its behavior is added in later development steps.
+"""
+
+__all__: list[str] = []

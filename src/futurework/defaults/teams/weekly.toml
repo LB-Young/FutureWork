@@ -1,0 +1,16 @@
+# Built-in sample weekly synchronization Team coordinated by XiaoWei.
+schema_version = 1
+id = "weekly"
+name = "每周进展同步"
+status = "active"
+members = ["research", "code", "plan"]
+mode = "controlled"
+
+[reply]
+max_responders_per_round = 3
+max_rounds = 2
+max_total_model_calls = 8
+
+[controller]
+agent_id = "assistant"
+selection_policy = "mention_then_capability"

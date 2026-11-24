@@ -1,0 +1,13 @@
+# Built-in sample definition for a planning Agent friend.
+schema_version = 1
+id = "plan"
+name = "程程"
+role = "项目与日程"
+kind = "friend"
+status = "active"
+
+[model]
+id = "default_fast"
+
+[capabilities]
+"planning.schedule" = 0.9

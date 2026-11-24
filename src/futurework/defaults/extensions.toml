@@ -1,0 +1,5 @@
+# Extension source and resource defaults; discovery and execution are pending.
+schema_version = 1
+
+[policy]
+auto_enable = false
