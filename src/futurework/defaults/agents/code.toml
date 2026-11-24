@@ -5,6 +5,7 @@ name = "阿码"
 role = "开发与自动化"
 kind = "friend"
 status = "active"
+tools = ["calculator"]
 
 [model]
 id = "default_fast"

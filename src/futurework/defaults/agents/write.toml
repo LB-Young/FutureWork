@@ -5,6 +5,7 @@ name = "言言"
 role = "内容与文案"
 kind = "friend"
 status = "active"
+tools = ["calculator"]
 
 [model]
 id = "default_fast"

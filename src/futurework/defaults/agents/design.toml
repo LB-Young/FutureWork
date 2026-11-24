@@ -5,6 +5,7 @@ name = "小绘"
 role = "产品与视觉设计"
 kind = "friend"
 status = "active"
+tools = ["calculator"]
 
 [model]
 id = "default_fast"

@@ -17,9 +17,10 @@ def test_user_skill_is_scoped_to_enabled_agent(tmp_path, monkeypatch):
     config = load_config(home)
     prompts = []
 
-    async def fake_generate(agent, messages, settings):
-        prompts.append(messages[0]["content"])
-        return "回复"
+    async def fake_generate(request, settings):
+        from futurework.integrations.model_gateway.types import ModelResult
+        prompts.append(request.messages[0]["content"])
+        return ModelResult(text="回复")
 
     monkeypatch.setattr("futurework.model.generate", fake_generate)
     research = {"id": "research", "name": "知知", "role": "研究", "model": "default_fast"}

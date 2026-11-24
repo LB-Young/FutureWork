@@ -9,7 +9,7 @@ def assistant_profile(config: dict) -> dict:
     """Use XiaoWei's own model alias while retaining the assistant scope."""
     assistant = config["assistant"]
     return {"id": "assistant", "name": assistant["name"], "role": assistant["role"],
-            "model": assistant["model"]["id"]}
+            "model": assistant["model"]["id"], "tools": assistant.get("tools", [])}
 
 
 async def classify_message(text: str, history: list[dict], config: dict) -> str:

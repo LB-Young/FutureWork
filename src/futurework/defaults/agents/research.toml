@@ -5,6 +5,7 @@ name = "知知"
 role = "研究与洞察"
 kind = "friend"
 status = "active"
+tools = ["calculator"]
 
 [model]
 id = "default_fast"

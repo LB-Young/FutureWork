@@ -1,25 +1,39 @@
 """Call an OpenAI compatible Chat Completions endpoint for text responses."""
 
+import json
 import os
 
 import httpx
 
+from futurework.integrations.model_gateway.types import ModelRequest, ModelResult, ToolCall
 
-async def generate(provider: dict, model: dict, messages: list[dict], options: dict) -> str:
-    """Send a text-only request to the configured provider and return its answer."""
-    env_name = provider["api_key_env"]
-    key = os.environ.get(env_name)
-    if not key:
+
+async def generate(request: ModelRequest, provider: dict, model: dict, options: dict) -> ModelResult:
+    """Send an OpenAI compatible Chat Completions request."""
+    env_name = provider.get("api_key_env", "")
+    key = os.environ.get(env_name) if env_name else ""
+    if not key and not provider.get("allow_no_key", False):
         raise RuntimeError(f"缺少模型密钥环境变量 {env_name}")
     url = provider["base_url"].rstrip("/") + "/chat/completions"
+    body = {"model": model["remote_id"], "messages": request.messages,
+            "max_tokens": model.get("max_output_tokens", options["max_output_tokens"])}
+    if model.get("temperature", options.get("temperature")) is not None:
+        body["temperature"] = model.get("temperature", options["temperature"])
+    if request.tools and model.get("supports_tools", True):
+        body["tools"] = request.tools
+    body.update(model.get("extra_body", {}))
+    headers = {"Authorization": f"Bearer {key}"} if key else {}
+    headers.update(provider.get("extra_headers", {}))
     async with httpx.AsyncClient(timeout=options["timeout_seconds"]) as client:
         response = await client.post(
-            url, headers={"Authorization": f"Bearer {key}"},
-            json={"model": model["remote_id"], "messages": messages,
-                  "temperature": options["temperature"], "max_tokens": options["max_output_tokens"]},
+            url, headers=headers, json=body,
         )
         response.raise_for_status()
-        content = response.json()["choices"][0]["message"]["content"]
-    if not isinstance(content, str) or not content.strip():
+        message = response.json()["choices"][0]["message"]
+    content = message.get("content") or ""
+    calls = [ToolCall(id=item["id"], name=item["function"]["name"],
+                      arguments=json.loads(item["function"].get("arguments") or "{}"))
+             for item in message.get("tool_calls", [])]
+    if not isinstance(content, str) or (not content.strip() and not calls):
         raise RuntimeError("模型返回了空内容")
-    return content.strip()
+    return ModelResult(text=content.strip(), tool_calls=calls)

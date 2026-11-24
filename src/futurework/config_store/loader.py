@@ -52,7 +52,9 @@ def load_user_config(home: Path) -> dict:
     for provider_id, provider in providers.items():
         if provider.get("adapter") not in {"openai_chat", "anthropic_messages"}:
             raise ValueError(f"Unknown adapter for provider {provider_id}")
-        if not provider.get("base_url", "").startswith("https://") or not provider.get("api_key_env"):
+        url = provider.get("base_url", "")
+        local = url.startswith(("http://127.0.0.1:", "http://localhost:"))
+        if not (url.startswith("https://") or local) or (not provider.get("api_key_env") and not (local and provider.get("allow_no_key"))):
             raise ValueError(f"Invalid endpoint or key reference for provider {provider_id}")
     for alias, model in models.get("models", {}).items():
         if model.get("provider") not in providers or not model.get("remote_id"):

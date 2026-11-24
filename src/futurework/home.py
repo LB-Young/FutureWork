@@ -20,6 +20,7 @@ DIRECTORIES = {
     "data": "SQLite、任务产物与其他持久运行数据。",
     "logs": "脱敏后的运行日志。",
     "cache": "可以重新生成的缓存。",
+    "workspace": "Agent 内置文件工具允许读取的用户工作区。",
 }
 
 

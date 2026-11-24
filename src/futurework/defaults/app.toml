@@ -51,9 +51,21 @@ system_prompt = "你是 FutureWork 团队中的 Agent。只回答当前任务，
 mock_reply = "已记录你的消息。当前使用本地演示模型，尚未执行外部工具；配置模型 API 后可以生成实际回复。"
 
 [permissions]
-available_tools = ["网页搜索", "文件读取", "代码执行", "图像生成", "日历访问", "外部发送"]
-safe_default_tools = []
-approval_required_tools = ["代码执行", "外部发送", "文件读取", "日历访问"]
+available_tools = ["calculator", "read_file", "glob_files", "grep_files", "网页搜索", "文件读取", "代码执行", "图像生成", "日历访问", "外部发送"]
+safe_default_tools = ["calculator"]
+approval_required_tools = ["代码执行", "外部发送", "文件读取", "日历访问", "read_file", "glob_files", "grep_files"]
+
+[tool_runtime]
+workspace = "workspace"
+max_rounds = 4
+max_calls_per_round = 3
+max_result_chars = 12000
+max_expression_chars = 100
+max_file_bytes = 1000000
+max_lines = 200
+max_matches = 100
+max_scanned_files = 1000
+max_pattern_chars = 200
 
 [execution]
 run_assigned_steps_with_model = true
