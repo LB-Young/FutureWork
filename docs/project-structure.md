@@ -2,7 +2,7 @@
 
 状态：目标架构与首个可运行版本。当前开发分支已接通用户目录配置、SQLite 消息和任务、多平台文本模型网关、小未分派、Agent 私聊、两种群聊模式、显式启用的 Skill 文本加载，以及计算、工作区文件操作、公共网页抓取和受限命令执行等通用工具。浏览器自动化、BKN、LSP、Workflow、MCP 与完整记忆检索仍属于后续阶段。此前的实验性实现保留在 `feat/user-home-package` 分支供参考。
 
-参考 Bamboo 后，当前执行入口会把数据库/TOML 记录转换为 `AgentRun` 对象；模型网关使用 `ModelRequest` 与 `ModelResult`，工具调度使用 `ToolRequest` 与 `ToolResult`。这些对象跨运行层传递，配置文件和 HTTP/SQLite 边界仍用原生映射。新用户目录预置 DeepSeek、Kimi、MiniMax、MiMo、GPT、Claude、阿里云千问、智谱、OpenRouter、Ollama、vLLM，以及 Bamboo 风格公司 HTTP 代理的文本模型别名。图像/视频模型、其他任意自定义 HTTP 协议及 Bamboo 的其他默认工具尚未实现，不能仅凭配置项认为可用。
+参考 Bamboo 后，当前对话执行入口先将请求转换为 `RunParams`，再由纯对象工厂创建类型化 `Task`，由 `TaskRuntime` 分流执行；具体 Agent 执行会把数据库/TOML 记录转换为 `AgentRun` 对象。模型网关使用 `ModelRequest` 与 `ModelResult`，工具调度使用 `ToolRequest` 与 `ToolResult`。这些对象跨运行层传递，配置文件和 HTTP/SQLite 边界仍用原生映射。新用户目录预置 DeepSeek、Kimi、MiniMax、MiMo、GPT、Claude、阿里云千问、智谱、OpenRouter、Ollama、vLLM，以及 Bamboo 风格公司 HTTP 代理的文本模型别名。图像/视频模型、其他任意自定义 HTTP 协议及 Bamboo 的其他默认工具尚未实现，不能仅凭配置项认为可用。
 
 ## 1. 核心原则
 
@@ -141,6 +141,9 @@ FutureWork/
 │   │   ├── retrieval.py             # 按作用域检索；不得跨域默认搜索
 │   │   └── policy.py                # 显式分享、保留与删除规则
 │   ├── runtime/
+│   │   ├── run_params.py           # 入口消息、来源、目标配置快照和幂等 ID
+│   │   ├── task_factory.py         # 按会话及意图创建类型化 Task；不执行副作用
+│   │   ├── task_runtime.py         # 幂等检查、任务分流、持久化与后台调度
 │   │   ├── router.py                # 按会话类型选择三种顶层 Runtime
 │   │   ├── assistant_runtime.py     # 小未对话：规划、分派、建 Agent、汇总
 │   │   ├── direct_runtime.py        # Agent 私聊：单 Agent 回复与私有上下文
@@ -383,6 +386,8 @@ supports_streaming = true
 ### 3.4 三种对话 Runtime
 
 三类对话需要**三个不同的顶层 Runtime**。`runtime/router.py` 根据会话类型选择其一；它们各自决定上下文、状态流转和可执行动作，共用底层的 `AgentExecutor`、模型网关、工具检查和 checkpoint 组件。这里的 Runtime 是一次会话处理的执行器，不要求为每个好友或群聊常驻一个 Python 进程。
+
+**当前版本的入口对象链：** API 读取会话配置并将消息归一化为 `RunParams(source, target, message, client_message_id)`；`TaskRuntime.handle` 先按客户端消息 ID 检查幂等，仅对新的小未消息做聊天/任务分类；`TaskFactory.create` 根据分类、会话类型和群模式创建 `Task(id, kind, params)`。工厂不访问数据库或模型。`TaskRuntime.run` 按 `assistant_chat`、`assistant_delegation`、`agent_chat`、`group_swarm`、`group_controlled` 分流；助理分派将同一 Task 对象交给后台步骤执行。好友私聊只取好友会话历史，群聊只取群历史；群模式在建 Task 时决定，后续按 `Task.kind` 执行。重复提交同一客户端消息 ID 返回原消息/任务 ID，跨会话复用返回冲突。这里的 Task 是一次对话执行对象；目前只有助理分派任务写入 `tasks`/`task_steps` 表，普通聊天和群聊不新增持久任务行。只读查询、配置修改和审批有独立业务语义，保持各自入口，不创建 Agent Task。
 
 | Runtime | 负责的会话 | 上下文作用域 | 核心职责 |
 | --- | --- | --- | --- |

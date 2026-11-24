@@ -2,25 +2,23 @@
 
 import asyncio
 import json
-import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import uuid4
 
-import httpx
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from futurework.algorithm import assign_steps, plan_steps
+from futurework.algorithm import plan_steps
 from futurework.config import WEB_DIRECTORY, database_path, load_config
 from futurework.database import Database, decode_agent, utc_now
 from futurework.config_store.writer import ConfigStore
 from futurework.home import ensure_home
-from futurework.runtime.group_runtime import run_group_reply
-from futurework.runtime.direct_runtime import run_direct_reply
-from futurework.runtime.assistant_runtime import assistant_profile, classify_message, execute_assigned_task
+from futurework.runtime.assistant_runtime import classify_message
+from futurework.runtime.run_params import RunParams
+from futurework.runtime.task_runtime import RequestConflict, TaskRuntime
 from futurework.model import respond
 
 
@@ -128,8 +126,9 @@ def create_app(home: str | Path | None = None, db_path: str | Path | None = None
         write_config("agents", decode_agent(row))
         database.emit(connection, "agent.updated", {"agent_id": agent_id})
 
-    async def execute_task(task_id: str):
-        await execute_assigned_task(task_id, database, config, insert_message, respond)
+    task_runtime = TaskRuntime(database=database, config=config, config_store=config_store,
+                               insert_message=insert_message, make_agent=make_agent,
+                               classify_message=classify_message, model_respond=respond)
 
     @app.get("/api/v1/health")
     def health():
@@ -240,78 +239,15 @@ def create_app(home: str | Path | None = None, db_path: str | Path | None = None
     @app.post("/api/v1/conversations/{conversation_id}/messages", status_code=202)
     async def send_message(conversation_id: str, body: MessageInput, background_tasks: BackgroundTasks):
         conversation = get_conversation(conversation_id)
-        text = body.body.strip()
-        if not text or len(text) > config["limits"]["max_message_chars"]:
+        params = RunParams.from_http(conversation, body.body, body.client_message_id)
+        if not params.message or len(params.message) > config["limits"]["max_message_chars"]:
             raise HTTPException(422, "message is empty or too long")
-        if conversation["kind"] == "assistant":
-            with database.transaction() as connection:
-                duplicate = connection.execute("SELECT id, task_id, conversation_id FROM messages WHERE client_message_id=?", (body.client_message_id,)).fetchone()
-                if duplicate:
-                    if duplicate["conversation_id"] != conversation_id:
-                        raise HTTPException(409, "client message ID already used in another conversation")
-                    return {"message_id": duplicate["id"], "task_id": duplicate["task_id"], "status": "accepted"}
-            history = database.messages("assistant", config["server"]["message_history_limit"])
-            if await classify_message(text, history, config) == "chat":
-                with database.transaction() as connection:
-                    user_message = insert_message(connection, "assistant", "user", "你", text, body.client_message_id)
-                try:
-                    reply = await respond(assistant_profile(config), database.messages("assistant", config["server"]["message_history_limit"]), config)
-                except (RuntimeError, httpx.HTTPError, KeyError, IndexError, ValueError) as error:
-                    reply = f"模型暂时不可用：{type(error).__name__}。消息已保存，请检查模型配置。"
-                with database.transaction() as connection:
-                    insert_message(connection, "assistant", "agent", config["ui"]["assistant_name"], reply)
-                return {"message_id": user_message["id"], "task_id": None, "status": "accepted"}
-            task_id = new_id()
-            with config_store.batch() as write_config, database.transaction() as connection:
-                duplicate = connection.execute("SELECT id, task_id, conversation_id FROM messages WHERE client_message_id=?", (body.client_message_id,)).fetchone()
-                if duplicate:
-                    if duplicate["conversation_id"] != conversation_id:
-                        raise HTTPException(409, "client message ID already used in another conversation")
-                    return {"message_id": duplicate["id"], "task_id": duplicate["task_id"], "status": "accepted"}
-                live_agents = [decode_agent(row) for row in connection.execute("SELECT * FROM agents WHERE status='active'")]
-                assignments = assign_steps(text, live_agents, config)
-                user_message = insert_message(connection, conversation_id, "user", "你", text, body.client_message_id, task_id=task_id)
-                created_names = []
-                assigned_names = []
-                connection.execute("INSERT INTO tasks VALUES (?, ?, ?, 'assigned', ?)", (task_id, conversation_id, text, utc_now()))
-                for assignment in assignments:
-                    agent_id = assignment.agent_id
-                    if not agent_id:
-                        created = make_agent(connection, write_config, assignment.suggested_name, assignment.suggested_role, assignment.capability)
-                        agent_id = created["id"]
-                        created_names.append(created["name"])
-                        insert_message(connection, agent_id, "agent", created["name"], f"你好，我是{created['name']}。已准备好承担{assignment.title}。")
-                    agent_row = connection.execute("SELECT name FROM agents WHERE id=?", (agent_id,)).fetchone()
-                    agent_name = agent_row["name"]
-                    assigned_names.append(f"{assignment.title} → {agent_name}")
-                    version = connection.execute("SELECT version FROM agents WHERE id=?", (agent_id,)).fetchone()["version"]
-                    connection.execute("INSERT INTO task_steps VALUES (?, ?, ?, ?, ?, 'assigned', ?)",
-                                       (new_id(), task_id, agent_id, assignment.capability, assignment.title, version))
-                    insert_message(connection, agent_id, "system", "小未", f"新任务已分派：{assignment.title}。来源：{text}", task_id=task_id)
-                summary = "已拆解并分派任务：" + "；".join(assigned_names) + "。"
-                if created_names:
-                    summary += " 新建 Agent：" + "、".join(created_names) + "。已按最小权限配置。"
-                if config["model"]["provider"] == "mock":
-                    summary += " 当前为本地演示模型，任务停在已分派状态；配置真实模型后可生成初稿。"
-                else:
-                    summary += " Agent 正在生成初稿；外部工具尚未接入。"
-                insert_message(connection, "assistant", "agent", config["ui"]["assistant_name"], summary, task_id=task_id)
-                database.emit(connection, "task.updated", {"task_id": task_id, "status": "assigned"})
-            if config["model"]["provider"] != "mock" and config["execution"]["run_assigned_steps_with_model"]:
-                background_tasks.add_task(execute_task, task_id)
-            return {"message_id": user_message["id"], "task_id": task_id, "status": "accepted"}
-        with database.transaction() as connection:
-            duplicate = connection.execute("SELECT id, task_id, conversation_id FROM messages WHERE client_message_id=?", (body.client_message_id,)).fetchone()
-            if duplicate:
-                if duplicate["conversation_id"] != conversation_id:
-                    raise HTTPException(409, "client message ID already used in another conversation")
-                return {"message_id": duplicate["id"], "task_id": duplicate["task_id"], "status": "accepted"}
-            user_message = insert_message(connection, conversation_id, "user", "你", text, body.client_message_id)
-        if conversation["kind"] == "group":
-            await run_group_reply(conversation, text, database, config, insert_message)
-            return {"message_id": user_message["id"], "task_id": None, "status": "accepted"}
-        await run_direct_reply(conversation, database, config, insert_message, respond)
-        return {"message_id": user_message["id"], "task_id": None, "status": "accepted"}
+        try:
+            result = await task_runtime.handle(
+                params, lambda task: background_tasks.add_task(task_runtime.execute_assigned, task))
+        except RequestConflict as error:
+            raise HTTPException(409, str(error)) from error
+        return result.as_response()
 
     @app.post("/api/v1/conversations/{conversation_id}/read")
     def mark_read(conversation_id: str, body: ReadInput):

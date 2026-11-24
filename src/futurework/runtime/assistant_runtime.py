@@ -3,6 +3,7 @@
 import httpx
 
 from futurework.model import respond
+from futurework.runtime.task_factory import Task
 
 
 def assistant_profile(config: dict) -> dict:
@@ -27,8 +28,9 @@ async def classify_message(text: str, history: list[dict], config: dict) -> str:
     return "chat" if answer.strip().upper().startswith("CHAT") else "task"
 
 
-async def execute_assigned_task(task_id: str, database, config: dict, insert_message, model_respond) -> None:
+async def execute_assigned_task(run_task: Task, database, config: dict, insert_message, model_respond) -> None:
     """Run assigned steps, persist each result, and return a summary to XiaoWei."""
+    task_id = run_task.id
     with database.transaction() as connection:
         task = connection.execute("SELECT * FROM tasks WHERE id=?", (task_id,)).fetchone()
         if not task or task["status"] != "assigned":

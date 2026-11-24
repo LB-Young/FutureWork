@@ -2,9 +2,12 @@
 
 import httpx
 
+from futurework.runtime.task_factory import Task
 
-async def run_direct_reply(agent: dict, database, config: dict, insert_message, model_respond) -> None:
+
+async def run_direct_reply(task: Task, database, config: dict, insert_message, model_respond) -> None:
     """Generate and persist an Agent reply without reading another conversation."""
+    agent = task.params.target.record
     history = database.messages(agent["id"], config["server"]["message_history_limit"])
     try:
         reply = await model_respond(agent, history, config)
