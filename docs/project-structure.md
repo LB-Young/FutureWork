@@ -1,6 +1,6 @@
 # FutureWork 工程目录设计
 
-状态：目标架构与开发骨架。当前开发分支已建立可安装的 `src/futurework/` 目录、逐层说明文档、用户目录初始化与配置校验；Runtime、模型适配器和扩展执行仍只有职责文件，尚未实现业务逻辑。此前的实验性实现保留在 `feat/user-home-package` 分支供参考。
+状态：目标架构与首个可运行版本。当前开发分支已接通用户目录配置、SQLite 消息和任务、DeepSeek 文本模型网关、小未分派、Agent 私聊、两种群聊模式，以及显式启用的 Skill 文本加载。工具、Workflow、MCP 的执行与完整记忆检索仍属于后续阶段。此前的实验性实现保留在 `feat/user-home-package` 分支供参考。
 
 ## 1. 核心原则
 
@@ -409,7 +409,7 @@ supports_streaming = true
 
 `runtime.toml` 统一定义最大循环次数、超时、重试、并发、token/费用硬上限和 checkpoint 周期；Agent TOML、群 TOML 只能在硬上限内收紧。`RunSpec` 固定 `agent_config_version?`、`group_config_version?`、`scope_key`、`context_cursor`、`task_id?` 和权限快照。权限变化只影响新运行；已暂停运行恢复时仍需重新检查敏感工具授权和审批有效期。
 
-**当前开发骨架：** Team TOML 中已有 `mode` 字段与基础校验，群聊交互仍只有静态演示。多平台网关、两种群模式的执行、三个独立 Runtime、群成员子执行记录和可恢复 checkpoint 均为后续开发目标。
+**当前实现范围：** Team TOML 的 `mode` 决定 Swarm 或小未中控的单轮执行；模型网关已支持 OpenAI 兼容文本接口和 Anthropic Messages 文本接口，默认别名指向 DeepSeek。完整多轮群计划、可恢复 checkpoint、群成员子执行记录、工具调用和记忆检索仍待实现。
 
 ### 3.5 Tool、Skill、MCP 与 Workflow 扩展目录
 

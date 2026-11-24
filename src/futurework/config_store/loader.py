@@ -4,6 +4,8 @@ import re
 import tomllib
 from pathlib import Path
 
+from futurework.extension_system.skill_loader import load_skills
+
 
 ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
 
@@ -43,16 +45,31 @@ def load_user_config(home: Path) -> dict:
     teams = read_definitions(home / "teams")
     if "assistant" not in agents:
         raise ValueError(f"Missing required Agent: {home / 'agents' / 'assistant.toml'}")
+    if set(agents) & set(teams):
+        raise ValueError("Agent and Team IDs must not overlap because conversation scopes share IDs")
     model_aliases = set(models.get("models", {}))
     providers = models.get("providers", {})
+    for provider_id, provider in providers.items():
+        if provider.get("adapter") not in {"openai_chat", "anthropic_messages"}:
+            raise ValueError(f"Unknown adapter for provider {provider_id}")
+        if not provider.get("base_url", "").startswith("https://") or not provider.get("api_key_env"):
+            raise ValueError(f"Invalid endpoint or key reference for provider {provider_id}")
     for alias, model in models.get("models", {}).items():
         if model.get("provider") not in providers or not model.get("remote_id"):
             raise ValueError(f"Invalid model alias {alias} in {home / 'models.toml'}")
     for agent_id, agent in agents.items():
-        model_alias = agent.get("model", {}).get("id")
+        if not agent.get("name") or not agent.get("role") or not isinstance(agent.get("capabilities", {}), dict):
+            raise ValueError(f"Incomplete Agent definition: {home / 'agents' / f'{agent_id}.toml'}")
+        model_config = agent.get("model")
+        if not isinstance(model_config, dict):
+            raise ValueError(f"Agent {agent_id} needs a [model] table with id = \"default_fast\"")
+        model_alias = model_config.get("id")
         if model_alias not in model_aliases:
             raise ValueError(f"Unknown model alias {model_alias!r} in agent {agent_id}")
+        load_skills(home, agent.get("extensions", {}).get("skills", []), settings["extensions"]["policy"].get("max_skill_chars", 12000))
     for team_id, team in teams.items():
+        if not team.get("name"):
+            raise ValueError(f"Incomplete Team definition: {home / 'teams' / f'{team_id}.toml'}")
         if team.get("mode") not in {"swarm", "controlled"}:
             raise ValueError(f"Unknown group mode in team {team_id}")
         members = team.get("members", [])
@@ -63,6 +80,12 @@ def load_user_config(home: Path) -> dict:
             raise ValueError(f"Controlled team {team_id} requires assistant controller")
         if team["mode"] == "swarm" and controller:
             raise ValueError(f"Swarm team {team_id} cannot have a controller")
+        reply = team.get("reply", {})
+        if any(not isinstance(reply.get(key, 1), int) or reply.get(key, 1) <= 0
+               for key in ("max_responders_per_round", "max_rounds", "max_total_model_calls")):
+            raise ValueError(f"Invalid reply limits in team {team_id}")
+        if team["mode"] == "controlled" and reply.get("max_total_model_calls", 8) < 3:
+            raise ValueError(f"Controlled team {team_id} needs at least three model calls")
     installed = {
         "skills": sorted(str(path.relative_to(home)) for path in (home / "skills").rglob("SKILL.md")),
         "workflows": sorted(str(path.relative_to(home)) for path in (home / "workflows").rglob("workflow.toml")),

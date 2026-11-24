@@ -21,4 +21,4 @@ def test_home_is_initialized_and_manual_config_survives(tmp_path):
 def test_api_shell_reads_the_selected_home(tmp_path):
     home = ensure_home(tmp_path / "api-home")
     response = TestClient(create_app(home)).get("/api/v1/health")
-    assert response.json() == {"status": "ok", "agents": 6, "teams": 3}
+    assert response.json() == {"status": "ok", "model_provider": "registry"}
