@@ -3,4 +3,5 @@
 __pycache__/
 *.pyc
 *.egg-info/
-data/
+data/*
+!data/README.md

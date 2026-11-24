@@ -4,7 +4,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SKIP = {".git", ".venv", ".pytest_cache", "__pycache__", "data"}
+SKIP = {".git", ".venv", ".pytest_cache", "__pycache__"}
 
 
 def check() -> list[str]:
