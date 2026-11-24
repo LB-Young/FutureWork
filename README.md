@@ -4,6 +4,8 @@
 
 完整的前后端、Python 算法、数据模型与接口方案见 [系统设计文档](docs/system-design.md)；可安装包目录、模型适配器、群聊模式和独立上下文的目标结构见 [工程目录设计](docs/project-structure.md)。本分支只保留设计稿和静态交互原型，不包含可运行后端。
 
+目标安装方式是 `python -m pip install -e .`。安装后首次运行 `futurework init` 或 `futurework serve` 时建立 `~/.futurework/`，此后从该目录加载 Agent、Team、Skill、Workflow、MCP 和记忆配置。具体目录与初始化规则见工程目录设计的第 2 节；这里描述的是未来实现契约，当前设计分支尚不能执行安装命令。
+
 ## 预览
 
 在项目目录运行 `python3 -m http.server 4173`，然后打开 `http://localhost:4173/frontend/`。

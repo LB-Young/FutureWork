@@ -11,7 +11,48 @@
 5. **版本固定。** 配置变更产生新版本；已启动任务记录 Agent/群聊配置版本与上下文快照游标，避免执行中权限和规则悄然变化。
 6. **用户创建也是创建配置。** 小未或用户在页面创建 Agent/群聊时，服务端先验证并写入对应 TOML，再同步数据库投影；高风险权限仍先走审批。
 
-## 2. 建议目录树
+## 2. 安装方式与目录布局
+
+### 2.1 安装和首次启动契约
+
+未来工程以 Python 包发布，在项目根目录执行 `python -m pip install -e .` 后，应能从任意工作目录使用 `futurework` 命令或 `python -m futurework`。`pyproject.toml` 声明包发现、静态页面与内置默认配置的 package data、依赖及 `futurework` 命令入口；项目运行时不得依赖当前工作目录或源码树中的相对路径。
+
+`pip install -e .` 负责安装包和命令入口。**首次执行 `futurework init` 或 `futurework serve` 时自动创建 `~/.futurework/`**；`serve` 内部先执行幂等初始化，再加载配置。这样普通安装、可编辑安装和升级都遵循相同规则，安装器不会在构建阶段改写用户目录。`futurework init` 用于希望启动前先检查或手工编辑配置的用户；`futurework paths` 显示实际路径。用 `FUTUREWORK_HOME` 或 `--home` 指定另一目录时，初始化和读取都只作用于该目录。
+
+首次初始化只复制缺失的内置示例，不覆盖用户已有 TOML、Skill、Workflow、MCP 或记忆。旧版本升级不自动重置用户配置；需要迁移时先备份、校验 schema，再原子写入。用户目录权限默认仅当前用户可读写。初始化失败时给出具体文件路径和原因，不允许带着半套配置启动。
+
+### 2.2 用户目录：配置和运行数据的真实位置
+
+```text
+~/.futurework/
+├── app.toml                         # 服务、默认策略、预算和路径
+├── models.toml                      # 多平台实例与模型别名
+├── agents/
+│   ├── assistant.toml               # 小未
+│   └── <agent_id>.toml              # 手工编写或应用生成的 Agent 好友配置
+├── teams/
+│   └── <team_id>.toml               # 手工编写或应用生成的群聊/Team 配置
+├── prompts/                         # 被 Agent 配置显式引用的长提示词
+├── skills/
+│   └── <skill_id>/SKILL.md          # 用户人工安装的 Skill 及其资源
+├── workflows/
+│   └── <workflow_id>/workflow.toml  # 用户人工安装/编写的 Workflow
+├── mcp/
+│   └── <server_id>.toml             # 用户配置的 MCP 连接；不存明文密钥
+├── memory/
+│   ├── assistant/                   # 小未个人助理作用域
+│   ├── agents/<agent_id>/           # 每位好友的私聊记忆
+│   └── teams/<team_id>/             # 每个群聊的共享记忆
+├── data/                            # SQLite、任务产物、运行状态
+├── logs/                            # 脱敏日志
+└── cache/                           # 可重建缓存
+```
+
+用户可以直接编辑 `agents/*.toml`、`teams/*.toml`，并手工安装 Skill、Workflow 和 MCP 配置。加载器以文件名和内部 ID 一致为基本条件，扫描用户目录，按 `app → models/扩展注册表 → Agent → Team → Runtime` 的顺序解析与交叉校验；Team 引用的 Agent、Agent 引用的模型和扩展必须存在且可用。有效配置投影到数据库，消息、审批、任务和已读状态继续留在数据库；数据库中的旧投影不能覆盖手写 TOML。目录中存在无效配置时，保留上一个有效版本并明确报告错误，不静默跳过或使用内置示例代替。运行开始时固定配置版本；手工改文件后通过重启或显式 reload 使新配置进入后续运行，进行中的运行不换版本。
+
+`skills/`、`workflows/`、`mcp/` 属于用户安装区域；应用随包发布的内置扩展只读，二者由同一个扩展注册表索引。发现一个扩展不等于启用或授权。`memory/` 与数据库中的消息/摘要共同组成上下文材料，但读写必须经过 `ScopeKey` 和权限策略，不能仅凭磁盘路径把某个 Agent 私聊记忆加载进群聊。密钥值由环境变量或系统密钥库提供，TOML 只保留引用。
+
+### 2.3 目标源码模块树（逻辑视图）
 
 ```text
 FutureWork/
