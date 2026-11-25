@@ -28,7 +28,7 @@ def test_dashscope_media_polling(tmp_path, monkeypatch):
             return httpx.Response(200, json={"output": {"task_id": "task-1", "task_status": "PENDING"}})
         return httpx.Response(200, json={"output": {"task_status": "SUCCEEDED", "results": [{"url": "https://example.com/image.png"}]}})
     result = asyncio.run(MediaGateway(config, httpx.MockTransport(respond)).generate("image_generation", "一只猫"))
-    assert result == {"status": "SUCCEEDED", "task_id": "task-1", "urls": ["https://example.com/image.png"], "saved_paths": []}
+    assert result == {"status": "SUCCEEDED", "task_id": "task-1", "urls": ["https://example.com/image.png"], "saved_paths": [], "artifact_urls": []}
     assert [item.method for item in calls] == ["POST", "GET"]
 
 
@@ -44,6 +44,7 @@ def test_openrouter_base64_image(tmp_path, monkeypatch):
     result = asyncio.run(MediaGateway(config, httpx.MockTransport(respond)).generate("image_generation", "一只猫"))
     assert result["urls"] == []
     assert len(result["saved_paths"]) == 1
+    assert result["artifact_urls"][0].startswith("/api/v1/artifacts/media/")
     assert __import__("pathlib").Path(result["saved_paths"][0]).read_bytes() == content
 
 
@@ -69,6 +70,11 @@ def test_upload_image_for_vision(tmp_path):
         relative = response.json()["path"]
         assert (tmp_path / "workspace" / relative).read_bytes() == image
         assert client.post("/api/v1/images", json={"filename": "bad", "media_type": "text/plain", "data_base64": "YQ=="}).status_code == 422
+        generated = tmp_path / "data" / "media" / "result.png"
+        generated.parent.mkdir(parents=True)
+        generated.write_bytes(image)
+        assert client.get("/api/v1/artifacts/media/result.png").content == image
+        assert client.get("/api/v1/artifacts/media/missing.png").status_code == 404
 
 
 def test_bamboo_credential_reference(tmp_path, monkeypatch):

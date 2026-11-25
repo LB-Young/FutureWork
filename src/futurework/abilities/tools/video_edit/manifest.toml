@@ -1,0 +1,7 @@
+# 用 FFmpeg 裁剪和缩放视频，执行前需要审批。
+schema_version = 1
+id = "video_edit"
+version = "0.1.0"
+kind = "tool"
+executor = "futurework.abilities.tools.video_edit.handler:run"
+enabled = true

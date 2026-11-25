@@ -8,7 +8,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -25,6 +25,9 @@ from futurework.runtime.task_runtime import RequestConflict, TaskRuntime
 from futurework.services.agent_service import AgentService, AgentServiceError
 from futurework.services.group_service import GroupService, GroupServiceError
 from futurework.services.message_service import MessageService
+from futurework.workers.task_worker import TaskRecoveryWorker
+from futurework.extension_system.workflow_runner import WorkflowRunner
+from futurework.contexts.types import ScopeKey
 
 
 def new_id() -> str:
@@ -66,6 +69,16 @@ class ImageUpload(BaseModel):
     filename: str = Field(min_length=1, max_length=200)
     media_type: str
     data_base64: str
+
+
+class VideoUpload(BaseModel):
+    filename: str = Field(min_length=1, max_length=200)
+    media_type: str
+    data_base64: str
+
+
+class WorkflowInput(BaseModel):
+    input: str = Field(min_length=1)
 
 
 def create_app(home: str | Path | None = None, db_path: str | Path | None = None) -> FastAPI:
@@ -110,6 +123,8 @@ def create_app(home: str | Path | None = None, db_path: str | Path | None = None
     task_runtime = TaskRuntime(database=database, config=config, config_store=config_store,
                                message_service=message_service, agent_service=agent_service,
                                agent_runtime=agent_runtime)
+    recovery_worker = TaskRecoveryWorker(database, config, message_service, task_runtime)
+    workflow_runner = WorkflowRunner(user_home, config["workflow"])
     scheduler = ScheduleStore(user_home, config["schedule"])
 
     async def scheduled_request(job: dict) -> None:
@@ -125,12 +140,16 @@ def create_app(home: str | Path | None = None, db_path: str | Path | None = None
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         schedule_task = asyncio.create_task(schedule_loop())
+        recovery_task = asyncio.create_task(recovery_worker.recover())
         try:
             yield
         finally:
             schedule_task.cancel()
+            recovery_task.cancel()
             with suppress(asyncio.CancelledError):
                 await schedule_task
+            with suppress(asyncio.CancelledError):
+                await recovery_task
 
     app.router.lifespan_context = lifespan
 
@@ -153,6 +172,23 @@ def create_app(home: str | Path | None = None, db_path: str | Path | None = None
     @app.get("/api/v1/extensions")
     def extensions():
         return config["installed_extensions"]
+
+    @app.post("/api/v1/workflows/{workflow_id}/runs", status_code=201)
+    async def run_workflow(workflow_id: str, body: WorkflowInput):
+        """Execute a bounded declarative workflow through existing Agent runtimes."""
+        async def execute_step(agent_id: str, prompt: str) -> str:
+            agent = database.agent(agent_id)
+            if not agent or agent["status"] != "active":
+                raise ValueError(f"workflow Agent {agent_id} is unavailable")
+            answer = await agent_runtime.respond(agent, [{"from": "me", "text": prompt}], ScopeKey("agent", agent_id))
+            with database.transaction() as connection:
+                message_service.insert(connection, agent_id, "system", "Workflow", prompt)
+                message_service.insert(connection, agent_id, "agent", agent["name"], answer)
+            return answer
+        try:
+            return await workflow_runner.run(workflow_id, body.input, execute_step)
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from error
 
     @app.get("/api/v1/agents")
     def agents():
@@ -210,6 +246,37 @@ def create_app(home: str | Path | None = None, db_path: str | Path | None = None
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(content)
         return {"path": str(target.relative_to(user_home / "workspace"))}
+
+    @app.post("/api/v1/videos", status_code=201)
+    def upload_video(body: VideoUpload):
+        """Store a bounded local video for keyframe analysis or editing."""
+        allowed = {"video/mp4": ".mp4", "video/quicktime": ".mov", "video/webm": ".webm"}
+        if body.media_type not in allowed or len(body.data_base64) > config["media"]["max_video_bytes"] * 2:
+            raise HTTPException(422, "不支持的视频类型或文件过大")
+        try:
+            content = base64.b64decode(body.data_base64, validate=True)
+        except binascii.Error as error:
+            raise HTTPException(422, "视频编码无效") from error
+        if not content or len(content) > config["media"]["max_video_bytes"]:
+            raise HTTPException(422, "视频为空或超出大小限制")
+        valid = content.startswith(b"\x1a\x45\xdf\xa3") if body.media_type == "video/webm" else content[4:8] == b"ftyp"
+        if not valid:
+            raise HTTPException(422, "视频内容与声明的类型不符")
+        target = user_home / "workspace" / "uploads" / f"{uuid4().hex}{allowed[body.media_type]}"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(content)
+        return {"path": str(target.relative_to(user_home / "workspace"))}
+
+    @app.get("/api/v1/artifacts/{kind}/{filename}")
+    def artifact(kind: str, filename: str):
+        """Expose only generated media and edited output files to the local UI."""
+        if kind not in {"media", "outputs"} or filename != Path(filename).name or not filename:
+            raise HTTPException(404, "artifact not found")
+        root = user_home / "data" / "media" if kind == "media" else user_home / "workspace" / "outputs"
+        path = (root / filename).resolve()
+        if not path.is_relative_to(root.resolve()) or not path.is_file():
+            raise HTTPException(404, "artifact not found")
+        return FileResponse(path, filename=filename, content_disposition_type="inline")
 
     @app.post("/api/v1/conversations/{conversation_id}/messages", status_code=202)
     async def send_message(conversation_id: str, body: MessageInput, background_tasks: BackgroundTasks):

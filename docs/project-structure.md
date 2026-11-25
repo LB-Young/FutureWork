@@ -21,7 +21,7 @@
 
 `pip install -e .` 负责安装包和命令入口。**首次执行 `futurework init` 或 `futurework serve` 时自动创建 `~/.FutureWork/`**；`serve` 内部先执行幂等初始化，再加载配置。这样普通安装、可编辑安装和升级都遵循相同规则，安装器不会在构建阶段改写用户目录。`futurework init` 用于希望启动前先检查或手工编辑配置的用户；`futurework paths` 显示实际路径。用 `FUTUREWORK_HOME` 或 `--home` 指定另一目录时，初始化和读取都只作用于该目录。
 
-当前实现已经把包内占位的 `builtin/` 更名为 `abilities/`，包含 `tools`、`skills`、`mcp`、`workflows`、`friends`、`teams` 六类。首次初始化会补齐内置好友和群的 TOML：小未、小T、小V及多媒体群；旧 `~/.futurework` 存在且新目录缺失时先复制，再补齐缺失文件。用户侧也创建 `abilities/` 同样的六类目录，新增好友/群配置参与启动加载，Skill 优先从用户能力目录读取。`user.md` 初始为空，所有 Agent 提示词读取至多 500 字；模型可通过受限工具追加明确的用户事实。动态计划 Skill 为小未提供步骤与验收规则；定时任务保存在 `data/schedules/`，服务运行时轮询。图片好友已接通图片上传、视觉模型和媒体工具；视频好友已接通文生视频工具。视频理解与编辑尚未接通。
+当前实现已经把包内占位的 `builtin/` 更名为 `abilities/`，包含 `tools`、`skills`、`mcp`、`workflows`、`friends`、`teams` 六类。首次初始化会补齐内置好友和群的 TOML：小未、小T、小V及多媒体群；旧 `~/.futurework` 存在且新目录缺失时先复制，再补齐缺失文件。用户侧也创建 `abilities/` 同样的六类目录，新增好友/群配置参与启动加载，Skill 优先从用户能力目录读取。`user.md` 初始为空，所有 Agent 提示词读取至多 500 字；模型可通过受限工具追加明确的用户事实。动态计划 Skill 为小未提供步骤与验收规则；定时任务保存在 `data/schedules/`，服务运行时轮询。图片好友已接通图片上传、视觉模型和媒体工具；视频好友已接通文生视频、关键帧理解和本地裁剪缩放工具。声明式 Agent Workflow 和本机 MCP stdio 工具已接入，权限仍由好友配置和工具审批层控制。
 
 首次初始化只复制缺失的内置示例，不覆盖用户已有 TOML、Skill、Workflow、MCP 或记忆。旧版本升级不自动重置用户配置；需要迁移时先备份、校验 schema，再原子写入。用户目录权限默认仅当前用户可读写。初始化失败时给出具体文件路径和原因，不允许带着半套配置启动。
 

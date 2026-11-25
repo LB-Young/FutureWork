@@ -49,6 +49,9 @@ class AgentRuntime:
         if enabled:
             instructions = load_skills(self.config["home"], enabled, self.config["skill_policy"].get("max_skill_chars", 12000))
             system += f"\n以下 Skill 只提供方法说明，不授予工具或数据权限：\n{instructions}"
+        mcp_servers = self.config["agent_extensions"].get(run.agent_id, {}).get("mcp", [])
+        if mcp_servers and "mcp_list" in run.tools:
+            system += "\n已授权的 MCP 服务 ID：" + "、".join(mcp_servers) + "。先用 mcp_list 查看工具说明，再调用 mcp_call。"
         messages = [{"role": "system", "content": system}]
         messages.extend({"role": "user" if item["from"] == "me" else "assistant",
                          "source_id": str(item.get("id", "")),

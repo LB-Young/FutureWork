@@ -30,7 +30,7 @@ FutureWork 是一个可以在本机安装和运行的 Agent 团队应用。界�
 | 数据与记忆 | 消息、任务、审批、已读位置和事件保存在 SQLite；提交后的消息按小未、好友、群聊分别镜像为原始 JSONL，并生成有来源标记的 Markdown 经验。人物和群聊长期介绍保存在对应 TOML 旁边。 |
 | 页面 | 支持好友与群聊切换、最近消息、全部消息、待审批筛选、Agent 配置和任务状态查看。 |
 
-页面现在只列出有执行器的工具。`read_file`、`glob_files`、`grep_files` 是兼容旧配置的别名；新配置使用 `read`、`glob`、`grep`。模型运行时另有只读的 `memory_search`，按当前作用域检索记忆。图片理解、生成与编辑以及文生视频已接入；浏览器自动化、BKN、LSP、Workflow、MCP、视频理解与编辑、持久任务队列尚未接入。Skill 的 `SKILL.md` 可以作为 Agent 的方法说明加载到提示词中，但安装 Skill 不会自动授予工具。任务初稿由当前服务进程的后台任务生成；服务在生成中退出时，需要人工检查任务状态。
+页面现在只列出有执行器的工具。`read_file`、`glob_files`、`grep_files` 是兼容旧配置的别名；新配置使用 `read`、`glob`、`grep`。模型运行时另有只读的 `memory_search`，按当前作用域检索记忆。图片理解、生成与编辑、文生视频、视频关键帧理解、本地裁剪与缩放、声明式 Agent Workflow 以及用户启用的 MCP stdio 工具已接入；浏览器自动化、BKN、LSP 和生成式视频编辑尚未接入。Skill 的 `SKILL.md` 可以作为 Agent 的方法说明加载到提示词中，但安装 Skill 不会自动授予工具。任务初稿由当前服务进程的后台任务生成；重启后未开始的已分派任务会恢复执行，执行到一半的任务会标记失败并提示检查产物，以免重复执行工具。
 
 ## 安装与首次运行
 
@@ -306,7 +306,11 @@ Bamboo 的工具调用在超时、异常或返回失败时会记录审计并把�
 skills = ["技能ID"]
 ```
 
-也可以把 Skill 放在 `~/.FutureWork/abilities/skills/<技能ID>/`；同名 Skill 按用户 `abilities/skills`、旧版 `skills`、包内内置 Skill 的顺序加载。重启后该好友的模型上下文会附加 Skill 文本；其他好友和群聊不会因此自动获得新权限。`workflows/` 与 `mcp/` 的执行器尚未接入。
+也可以把 Skill 放在 `~/.FutureWork/abilities/skills/<技能ID>/`；同名 Skill 按用户 `abilities/skills`、旧版 `skills`、包内内置 Skill 的顺序加载。重启后该好友的模型上下文会附加 Skill 文本；其他好友和群聊不会因此自动获得新权限。
+
+MCP stdio 服务的定义放在 `~/.FutureWork/abilities/mcp/<服务ID>/manifest.toml`，设置 `id`、`enabled = true`、`command`、`args` 和可选的 `env = ["变量名"]`。在需要使用它的好友 TOML 的 `tools` 中显式加入 `mcp_list`、`mcp_call`，并在 `[extensions]` 中写 `mcp = ["服务ID"]`。模型先调用 `mcp_list` 获取服务公开的工具，再用 `mcp_call(server_id, tool_name, arguments)` 执行；调用前会验证服务属于该好友的启用列表，且工具确实在服务的 `tools/list` 中。两个调用默认都需单次人工审批，且不自动重试。服务进程的环境只带基础变量及 manifest 显式列出的变量，可从本机 Bamboo `.env` 同名变量读取；MCP 服务的启动、请求及结果大小受 `extensions.toml [mcp]` 控制。当前只支持本机 stdio 传输，不支持远程 HTTP MCP。
+
+Workflow 可以放在 `~/.FutureWork/abilities/workflows/<ID>/workflow.toml`，旧版 `workflows/<ID>/workflow.toml` 也可用。当前支持 `enabled = true` 的声明式 `agent_task` 步骤，每步必须有 `id`、`agent_id`、`prompt` 和 `depends_on`；提示词支持 `{{input}}` 和直接依赖步骤的 `{{steps.<ID>}}`。调用 `POST /api/v1/workflows/<ID>/runs`，JSON 正文为 `{"input":"用户需求"}`。系统按依赖顺序调用已配置的 Agent Runtime，运行结果逐步保存到 `data/workflows/<运行ID>.json`，Agent 对话也会记录指令和回复。内置 `product_launch` 演示调研后再制定发布方案。可调节步骤数和输入输出上限在 `extensions.toml [workflow]`。暂不支持任意脚本步骤、MCP 步骤或并行 DAG 执行；Workflow 的 Agent 工具调用仍经过原有授权和审批层。
 
 ### 内置能力、动态计划与用户画像
 
@@ -318,9 +322,9 @@ skills = ["技能ID"]
 
 `schedule_create` 支持带时区的 ISO 时间和可选重复间隔，`schedule_list` 查询状态。定时任务保存在 `data/schedules/`，服务运行期间按 `app.toml [schedule] poll_seconds` 扫描，到期后作为小未会话请求执行；服务停止期间不会执行，重新启动后会处理逾期任务。重复间隔不能短于 `min_interval_seconds`。定时任务执行仍依赖已配置的模型。
 
-**媒体能力：** 小T默认使用文本模型调度 `image_analyze` 和 `media_generate`；前者把工作区图片或 HTTPS 图片传给配置的视觉模型，后者按 `image_generation`、`image_edit`、`video_generation` 选择媒体模型。小V默认可用 `media_generate` 进行文生视频。多媒体群可由小未分派给这两个好友。网页输入框的 `＋` 可以上传 PNG、JPEG、WebP 或 GIF 图片；上传后输入框会插入工作区相对路径，发送消息后小T可调用图片理解工具。图片最大体积由 `media.toml [media] max_image_bytes` 控制。图片编辑的 `image_url` 当前要求提供媒体平台可访问的 URL；本地上传路径仅供图片理解工具读取。
+**媒体能力：** 小T默认使用文本模型调度 `image_analyze` 和 `media_generate`；前者把工作区图片或 HTTPS 图片传给配置的视觉模型，后者按 `image_generation`、`image_edit`、`video_generation` 选择媒体模型。小V默认可用 `media_generate` 文生视频、`video_analyze` 抽帧理解工作区视频、`video_edit` 用本机 FFmpeg 裁剪和缩放视频。多媒体群可由小未分派给这两个好友。网页输入框的 `＋` 可以上传 PNG、JPEG、WebP、GIF、MP4、MOV 或 WebM；上传后输入框会插入工作区相对路径。图片与视频最大体积、抽帧数、处理超时和 FFmpeg 程序路径由 `media.toml [media]` 控制。视频分析需要系统安装 FFmpeg 和 FFprobe；编辑结果存于用户工作区 `outputs/`。图片编辑的 `image_url` 当前要求提供媒体平台可访问的 URL；本地上传路径仅供图片理解工具读取。
 
-`models.toml` 已包含 Bamboo 对应的阿里云万相文生图、图片编辑、文生视频、OpenRouter 图片模型和阿里云 Qwen-VL 视觉模型。`media.toml [media.aliases]` 按能力选择模型别名。阿里云媒体任务使用异步提交和限时轮询，返回任务 ID 与结果 URL；OpenRouter 图片接口返回的 `b64_json` 会保存到 `~/.FutureWork/data/media/`。云平台若返回 URL，当前直接显示 URL，不自动下载远程文件。轮询超时会返回 `PENDING` 和任务 ID；可以在平台侧继续查询。视频理解和视频编辑目前没有可用执行器，不能把小V的角色介绍视为已经具备这两种能力。
+`models.toml` 已包含 Bamboo 对应的阿里云万相文生图、图片编辑、文生视频、OpenRouter 图片模型和阿里云 Qwen-VL 视觉模型。`media.toml [media.aliases]` 按能力选择模型别名。阿里云媒体任务使用异步提交和限时轮询，返回任务 ID 与结果 URL；OpenRouter 图片接口返回的 `b64_json` 会保存到 `~/.FutureWork/data/media/`，并提供 `/api/v1/artifacts/media/<文件名>` 供本地页面预览。FFmpeg 编辑产物可从 `/api/v1/artifacts/outputs/<文件名>` 预览。云平台若返回 URL，当前直接显示 URL，不自动下载远程文件。轮询超时会返回 `PENDING` 和任务 ID；可以在平台侧继续查询。视频理解基于少量关键帧，不能理解完整音轨和逐帧动作；视频编辑当前仅支持本地裁剪和可选缩放，不提供生成式重绘。
 
 密钥解析顺序为对应进程环境变量、本机 `~/.bamboo/.env` 同名变量，再按 `providers.<平台>.bamboo_model` 指定的模型名读取 `~/.bamboo/configs/models.yaml` 的 `api_key`；该字段若为 `${变量名}`，会从进程环境或 Bamboo 的 `.env` 解析。读取只发生在调用模型时；FutureWork 仓库、用户 TOML 和 API 返回值都不保存该密钥。若你的 Bamboo 配置目录不同，请通过环境变量提供密钥。建议在多个模型使用不同账号时单独设置环境变量，避免同平台共用 Bamboo 模型的密钥。
 

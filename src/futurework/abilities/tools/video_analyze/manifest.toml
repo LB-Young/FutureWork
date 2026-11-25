@@ -1,0 +1,7 @@
+# 读取工作区视频的关键帧并交给视觉模型分析。
+schema_version = 1
+id = "video_analyze"
+version = "0.1.0"
+kind = "tool"
+executor = "futurework.abilities.tools.video_analyze.handler:run"
+enabled = true

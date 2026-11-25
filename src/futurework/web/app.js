@@ -16,11 +16,13 @@ let reconnectTimer;
 let toastTimer;
 const $ = (selector) => document.querySelector(selector);
 const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
-const renderMessageText = (value) => String(value ?? '').split(/(https:\/\/[^\s<>"']+)/g).map((part) => {
-  if (!part.startsWith('https://')) return escapeHtml(part);
+const renderMessageText = (value) => String(value ?? '').split(/(https:\/\/[^\s<>"']+|\/api\/v1\/artifacts\/(?:media|outputs)\/[A-Za-z0-9_.-]+)/g).map((part) => {
+  if (!part.startsWith('https://') && !part.startsWith('/api/v1/artifacts/')) return escapeHtml(part);
   const safe = escapeHtml(part);
   const image = /\.(png|jpe?g|webp|gif)(?:\?[^\s]*)?$/i.test(part);
+  const video = /\.mp4(?:\?[^\s]*)?$/i.test(part);
   return image ? `<a href="${safe}" target="_blank" rel="noopener noreferrer"><img src="${safe}" alt="生成的图片" style="max-width:100%;max-height:320px;border-radius:9px"></a>`
+    : video ? `<video controls src="${safe}" style="max-width:100%;max-height:320px;border-radius:9px"></video>`
     : `<a href="${safe}" target="_blank" rel="noopener noreferrer">${safe}</a>`;
 }).join('');
 const itemById = (id) => [...agents, ...groups].find((item) => item.id === id);
@@ -266,9 +268,10 @@ $('#imageInput').addEventListener('change', async (event) => {
       reader.onerror = reject;
       reader.readAsDataURL(file);
     });
-    const uploaded = await api('/images', {method: 'POST', body: JSON.stringify({filename: file.name, media_type: file.type, data_base64: base64})});
+    const isVideo = file.type.startsWith('video/');
+    const uploaded = await api(isVideo ? '/videos' : '/images', {method: 'POST', body: JSON.stringify({filename: file.name, media_type: file.type, data_base64: base64})});
     const field = $('#messageInput');
-    field.value += `${field.value ? '\n' : ''}图片：${uploaded.path}。请使用 image_analyze 工具分析。`;
+    field.value += `${field.value ? '\n' : ''}${isVideo ? '视频' : '图片'}：${uploaded.path}。请使用 ${isVideo ? 'video_analyze' : 'image_analyze'} 工具分析。`;
     field.focus();
   } catch (error) { showToast(error.message); }
   finally { event.target.value = ''; }

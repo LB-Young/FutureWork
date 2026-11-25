@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import json
 from dataclasses import dataclass
 from typing import Any
 
@@ -16,6 +17,8 @@ from futurework.abilities.tools.grep import handler as grep_handler
 from futurework.abilities.tools.memory_search import handler as memory_handler
 from futurework.abilities.tools.media_generate import handler as media_handler
 from futurework.abilities.tools.image_analyze import handler as image_handler
+from futurework.abilities.tools.video_analyze import handler as video_analyze_handler
+from futurework.abilities.tools.video_edit import handler as video_edit_handler
 from futurework.abilities.tools.plan_check import handler as plan_check_handler
 from futurework.abilities.tools.plan_update import handler as plan_update_handler
 from futurework.abilities.tools.read import handler as read_handler
@@ -29,9 +32,20 @@ from futurework.abilities.tools.write import handler as write_handler
 from futurework.contexts.retrieval import MemoryRetriever
 from futurework.contexts.store import MemoryStore
 from futurework.contexts.types import ScopeKey
+from futurework.extension_system.mcp_client import MCPClient
 
 
 SCHEMAS = {
+    "video_analyze": ("Analyze sampled frames of a workspace video with the vision model.",
+                      {"source": {"type": "string"}, "prompt": {"type": "string"}}, ["source"]),
+    "video_edit": ("Trim and optionally resize a workspace video into an MP4 file.",
+                   {"source": {"type": "string"}, "start_seconds": {"type": "integer"},
+                    "duration_seconds": {"type": "integer"}, "width": {"type": "integer"}},
+                   ["source", "start_seconds", "duration_seconds"]),
+    "mcp_list": ("List tools from an enabled MCP server.", {"server_id": {"type": "string"}}, ["server_id"]),
+    "mcp_call": ("Call an advertised tool on an enabled MCP server after user approval.",
+                 {"server_id": {"type": "string"}, "tool_name": {"type": "string"},
+                  "arguments": {"type": "object"}}, ["server_id", "tool_name", "arguments"]),
     "image_analyze": ("Analyze an HTTPS image URL or an image path in the user workspace.",
                       {"image_url": {"type": "string"}, "prompt": {"type": "string"}}, ["image_url"]),
     "media_generate": ("Generate an image, edit an image, or generate a video using a configured media model.",
@@ -129,6 +143,7 @@ class ToolRegistry:
             intrinsic += ("memory_search",)
         self.grants = tuple(dict.fromkeys((*grants, *intrinsic))) if scope else tuple(grants)
         self.config = config
+        self.mcp_servers = tuple(config.get("agent_extensions", {}).get(agent_id, {}).get("mcp", []))
 
     def schemas(self) -> list[dict]:
         """Expose only the tool schemas granted to this Agent."""
@@ -203,6 +218,19 @@ class ToolRegistry:
                 content = await media_handler.run(arguments, self.config)
             elif name == "image_analyze":
                 content = await image_handler.run(arguments, self.config)
+            elif name == "video_analyze":
+                content = await video_analyze_handler.run(arguments, self.config)
+            elif name == "video_edit":
+                content = await video_edit_handler.run(arguments, self.config)
+            elif name in {"mcp_list", "mcp_call"}:
+                server_id = arguments["server_id"]
+                if server_id not in self.mcp_servers:
+                    return ToolResult("MCP server is not enabled for this Agent", False)
+                mcp_client = MCPClient(self.config["home"], self.config["mcp"])
+                if name == "mcp_list":
+                    content = json.dumps(await mcp_client.list_tools(server_id), ensure_ascii=False)
+                else:
+                    content = await mcp_client.call_tool(server_id, arguments["tool_name"], arguments["arguments"])
             elif name == "url_to_md":
                 content = await url_to_md_handler.run(arguments, self.config)
             elif name == "bash":

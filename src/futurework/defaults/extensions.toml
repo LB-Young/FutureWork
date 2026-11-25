@@ -1,6 +1,17 @@
-# Extension source and resource defaults; discovery and execution are pending.
+# 用户扩展的加载与执行限制。
 schema_version = 1
 
 [policy]
 auto_enable = false
 max_skill_chars = 12000
+
+[workflow]
+max_steps = 12
+max_input_chars = 4000
+max_output_chars = 12000
+
+[mcp]
+timeout_seconds = 30
+max_output_chars = 12000
+shutdown_timeout_seconds = 1
+protocol_version = "2025-03-26"

@@ -14,6 +14,7 @@ DEFAULT_CONFIG = files("futurework").joinpath("defaults", "app.toml")
 DEFAULT_CONTEXT = files("futurework").joinpath("defaults", "context.toml")
 DEFAULT_TOOLS = files("futurework").joinpath("defaults", "tools.toml")
 DEFAULT_MEDIA = files("futurework").joinpath("defaults", "media.toml")
+DEFAULT_EXTENSIONS = files("futurework").joinpath("defaults", "extensions.toml")
 
 
 def _merge(base: dict, override: dict) -> dict:
@@ -44,10 +45,25 @@ def load_config(home: Path) -> dict:
     media_settings = tomllib.loads(user_media.read_text(encoding="utf-8")) if user_media.exists() else {}
     config["media"] = _merge(media_defaults["media"], media_settings.get("media", {}))
     if any(type(config["media"][key]) is not int or config["media"][key] <= 0 for key in
-           ("request_timeout_seconds", "task_timeout_seconds", "poll_interval_seconds", "max_image_bytes")):
+           ("request_timeout_seconds", "task_timeout_seconds", "poll_interval_seconds", "max_image_bytes",
+            "max_video_bytes", "max_video_frames", "video_frame_width", "video_timeout_seconds", "max_edit_seconds", "max_video_width")):
         raise ValueError("media.toml contains invalid limits")
+    if any(not isinstance(config["media"].get(key), str) or not config["media"][key] for key in ("ffmpeg_path", "ffprobe_path")):
+        raise ValueError("media.toml video executables are invalid")
     config["home"] = home
     config["skill_policy"] = raw["settings"]["extensions"]["policy"]
+    with DEFAULT_EXTENSIONS.open("rb") as source:
+        extension_defaults = tomllib.load(source)
+    config["workflow"] = _merge(extension_defaults["workflow"], raw["settings"]["extensions"].get("workflow", {}))
+    if any(type(config["workflow"].get(name)) is not int or config["workflow"][name] <= 0 for name in
+           ("max_steps", "max_input_chars", "max_output_chars")):
+        raise ValueError("extensions.toml workflow limits must be positive integers")
+    config["mcp"] = _merge(extension_defaults["mcp"], raw["settings"]["extensions"].get("mcp", {}))
+    if type(config["mcp"].get("timeout_seconds")) is not int or config["mcp"]["timeout_seconds"] <= 0 or \
+       type(config["mcp"].get("max_output_chars")) is not int or config["mcp"]["max_output_chars"] <= 0 or \
+       type(config["mcp"].get("shutdown_timeout_seconds")) is not int or config["mcp"]["shutdown_timeout_seconds"] <= 0 or \
+       not isinstance(config["mcp"].get("protocol_version"), str):
+        raise ValueError("extensions.toml MCP settings are invalid")
     with DEFAULT_TOOLS.open("rb") as source:
         tool_defaults = tomllib.load(source)
     config["tool_execution"] = _merge(tool_defaults["execution"], raw["settings"]["tools"].get("execution", {}))
@@ -95,6 +111,9 @@ def load_config(home: Path) -> dict:
         raise ValueError("schedule settings must be positive integers")
     if type(config["user_profile"].get("max_chars")) is not int or not 1 <= config["user_profile"]["max_chars"] <= 500:
         raise ValueError("context.toml user_profile.max_chars must be between 1 and 500")
+    if any(type(config["worker"].get(name)) is not bool for name in
+           ("recover_assigned_on_startup", "mark_interrupted_failed")):
+        raise ValueError("app.toml worker recovery switches must be booleans")
     config["model"]["available_models"] = list(raw["models"]["models"])
     if config["model"]["default_model"] not in config["model"]["available_models"]:
         raise ValueError("app.toml default_model must name an alias in models.toml")

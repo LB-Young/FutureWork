@@ -85,7 +85,8 @@ class MediaGateway:
                 raise ValueError(f"不支持的媒体协议：{protocol}")
             urls = self._urls(data)
             saved = self._save_base64(data)
-            return {"status": "SUCCEEDED", "task_id": task_id, "urls": urls, "saved_paths": saved}
+            return {"status": "SUCCEEDED", "task_id": task_id, "urls": urls, "saved_paths": saved,
+                    "artifact_urls": ["/api/v1/artifacts/media/" + Path(path).name for path in saved]}
 
     @staticmethod
     def _urls(data: object) -> list[str]:

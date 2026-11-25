@@ -35,11 +35,15 @@ class VisionGateway:
 
     async def analyze(self, source: str, prompt: str) -> str:
         """Send visual input to a vision alias; return only the provider's text."""
+        return await self.analyze_many([source], prompt)
+
+    async def analyze_many(self, sources: list[str], prompt: str) -> str:
+        """Send several sampled image frames to one vision request."""
         alias = self.config["media"]["aliases"].get("image_understanding", "")
         model = self.config["models"]["models"].get(alias, {})
         if model.get("model_type") != "vision":
             raise ValueError("未配置有效的图片理解模型")
-        content = [{"type": "text", "text": prompt or "请描述并分析这张图片。"},
-                   {"type": "image_url", "image_url": {"url": self._image_url(source)}}]
+        content = [{"type": "text", "text": prompt or "请描述并分析这些画面。"}]
+        content.extend({"type": "image_url", "image_url": {"url": self._image_url(source)}} for source in sources)
         result = await self.gateway.generate(ModelRequest(alias, [{"role": "user", "content": content}]))
         return result.text

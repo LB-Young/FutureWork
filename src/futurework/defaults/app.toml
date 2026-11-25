@@ -82,6 +82,10 @@ poll_seconds = 10
 min_interval_seconds = 60
 max_prompt_chars = 4000
 
+[worker]
+recover_assigned_on_startup = true
+mark_interrupted_failed = true
+
 [execution]
 run_assigned_steps_with_model = true
 step_instruction = "请处理以下子任务并给出可交付的初稿。不能声称访问了未提供的外部工具、文件或实时数据。"

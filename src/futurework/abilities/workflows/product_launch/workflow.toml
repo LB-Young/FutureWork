@@ -1,11 +1,19 @@
-# Product launch Workflow shape; the runner is not connected yet.
+# 内置产品发布工作流：顺序执行调研与方案设计。
 schema_version = 1
 id = "product_launch"
 version = "0.1.0"
-enabled = false
+enabled = true
 
 [[steps]]
 id = "research"
 kind = "agent_task"
-capability = "research.web"
+agent_id = "research"
+prompt = "请调研以下产品发布任务并列出受众、竞品和风险：{{input}}"
 depends_on = []
+
+[[steps]]
+id = "design"
+kind = "agent_task"
+agent_id = "design"
+prompt = "请根据用户需求 {{input}} 与调研结果 {{steps.research}} 制定发布方案。"
+depends_on = ["research"]
