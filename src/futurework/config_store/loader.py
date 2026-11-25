@@ -44,6 +44,11 @@ def load_user_config(home: Path) -> dict:
     )}
     agents = read_definitions(home / "agents")
     teams = read_definitions(home / "teams")
+    for category, definitions in (("friends", agents), ("teams", teams)):
+        for item_id, item in read_definitions(home / "abilities" / category).items():
+            if item_id in definitions:
+                raise ValueError(f"Duplicate {category} ID across legacy and abilities directories: {item_id}")
+            definitions[item_id] = item
     if "assistant" not in agents:
         raise ValueError(f"Missing required Agent: {home / 'agents' / 'assistant.toml'}")
     if set(agents) & set(teams):
@@ -96,9 +101,9 @@ def load_user_config(home: Path) -> dict:
         if team["mode"] == "controlled" and reply.get("max_total_model_calls", 8) < 3:
             raise ValueError(f"Controlled team {team_id} needs at least three model calls")
     installed = {
-        "skills": sorted(str(path.relative_to(home)) for path in (home / "skills").rglob("SKILL.md")),
-        "workflows": sorted(str(path.relative_to(home)) for path in (home / "workflows").rglob("workflow.toml")),
-        "mcp": sorted(str(path.relative_to(home)) for path in (home / "mcp").glob("*.toml")),
+        "skills": sorted(str(path.relative_to(home)) for root in (home / "skills", home / "abilities" / "skills") for path in root.rglob("SKILL.md")),
+        "workflows": sorted(str(path.relative_to(home)) for root in (home / "workflows", home / "abilities" / "workflows") for path in root.rglob("workflow.toml")),
+        "mcp": sorted(str(path.relative_to(home)) for root in (home / "mcp", home / "abilities" / "mcp") for path in root.glob("*.toml")),
     }
     return {"app": app, "models": models, "settings": settings,
             "agents": agents, "teams": teams, "installed_extensions": installed}

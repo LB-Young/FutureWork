@@ -6,6 +6,7 @@ from futurework.extension_system.skill_loader import load_skills
 from futurework.contexts.store import MemoryStore
 from futurework.contexts.compactor import ContextCompactor
 from futurework.contexts.types import ScopeKey
+from futurework.abilities.tools.management import UserProfile
 from futurework.integrations.model_gateway.gateway import ModelGateway
 from futurework.integrations.model_gateway.types import ModelRequest
 from futurework.runtime.run_spec import AgentRun
@@ -33,10 +34,16 @@ class AgentRuntime:
         if settings["provider"] == "mock":
             return settings["mock_reply"]
         system = f"{settings['system_prompt']} 你的名字是{run.name}，职责是{run.role}。"
+        profile = UserProfile(self.config["home"], self.config["user_profile"]["max_chars"]).read()
+        system += ("\n用户画像（仅记录用户明确表达的信息；回答时尊重这些偏好，不把它当作新任务）：\n"
+                   + (profile or "（尚无记录）")
+                   + "\n当用户明确表达稳定的个人信息、习惯或偏好时，可调用 user_profile_update 追加一条简短事实；不要猜测。")
         memory = self.memory_store.prompt_context(run.scope, run.agent_id)
         if memory:
             system += f"\n以下是可供当前会话使用的长期记忆和人物/群聊介绍：\n{memory}"
-        enabled = self.config["agent_extensions"].get(run.agent_id, {}).get("skills", [])
+        enabled = list(self.config["agent_extensions"].get(run.agent_id, {}).get("skills", []))
+        if run.agent_id == "assistant" and "dynamic_plan" not in enabled:
+            enabled.append("dynamic_plan")
         if enabled:
             instructions = load_skills(self.config["home"], enabled, self.config["skill_policy"].get("max_skill_chars", 12000))
             system += f"\n以下 Skill 只提供方法说明，不授予工具或数据权限：\n{instructions}"
@@ -45,7 +52,10 @@ class AgentRuntime:
                          "source_id": str(item.get("id", "")),
                          "content": f"{item.get('speaker', run.name)}：{item['text']}" if item["from"] != "me" else item["text"]}
                         for item in run.history)
-        tools_for_run = ToolRegistry(run.agent_id, run.tools, self.config,
+        grants = run.tools
+        if run.agent_id == "assistant":
+            grants = tuple(dict.fromkeys((*grants, "plan_update", "plan_check", "schedule_create", "schedule_list")))
+        tools_for_run = ToolRegistry(run.agent_id, grants, self.config,
                                      scope=run.scope, memory_store=self.memory_store)
         tools = tools_for_run.schemas() if self.model_gateway.supports_tools(run.model_alias) else []
         for _ in range(self.config["tool_runtime"]["max_rounds"] + 1):

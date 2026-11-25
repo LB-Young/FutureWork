@@ -4,6 +4,9 @@ schema_version = 1
 [retention]
 memory_days = 180
 
+[user_profile]
+max_chars = 500
+
 [memory]
 max_prompt_memory_chars = 12000
 max_experience_entry_chars = 1000

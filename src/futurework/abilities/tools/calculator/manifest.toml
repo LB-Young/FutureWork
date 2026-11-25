@@ -1,0 +1,7 @@
+# Calculator tool manifest; execution lives in the shared ToolRegistry.
+schema_version = 1
+id = "calculator"
+version = "0.1.0"
+kind = "tool"
+executor = "futurework.runtime.tool_dispatch.ToolRegistry"
+enabled = true

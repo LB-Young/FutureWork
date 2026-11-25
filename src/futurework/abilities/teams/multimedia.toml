@@ -1,0 +1,17 @@
+# 内置多媒体群：小未中控，小T 与小V 协作。
+schema_version = 1
+id = "multimedia"
+name = "多媒体群"
+purpose = "协调图片与视频任务的需求分析、制作方案和可用媒体能力。"
+status = "active"
+members = ["image", "video"]
+mode = "controlled"
+
+[reply]
+max_responders_per_round = 2
+max_rounds = 2
+max_total_model_calls = 6
+
+[controller]
+agent_id = "assistant"
+selection_policy = "mention_then_capability"

@@ -20,6 +20,8 @@ from typing import Any
 
 import httpx
 
+from futurework.abilities.tools.management import DynamicPlan, UserProfile
+from futurework.abilities.tools.schedule import ScheduleStore
 from futurework.extension_system.skill_loader import load_skills
 from futurework.contexts.retrieval import MemoryRetriever
 from futurework.contexts.store import MemoryStore
@@ -52,6 +54,18 @@ SCHEMAS = {
     "memory_search": ("Search scoped experience first, then raw messages if no experience matches.",
                       {"query": {"type": "string"}, "limit": {"type": "integer"},
                        "group_id": {"type": "string"}}, ["query"]),
+    "user_profile_update": ("Record an explicit user fact or preference in the shared 500-character profile.",
+                            {"fact": {"type": "string"}}, ["fact"]),
+    "plan_update": ("Create or revise future plan steps with per-step acceptance criteria.",
+                    {"steps": {"type": "array", "items": {"type": "object"}},
+                     "reason": {"type": "string"}}, ["steps", "reason"]),
+    "plan_check": ("Record acceptance evidence and outcome for one plan step.",
+                   {"step_id": {"type": "string"}, "passed": {"type": "boolean"},
+                    "evidence": {"type": "string"}}, ["step_id", "passed", "evidence"]),
+    "schedule_create": ("Schedule a future assistant request with optional repeat interval.",
+                        {"prompt": {"type": "string"}, "run_at": {"type": "string"},
+                         "interval_seconds": {"type": "integer"}}, ["prompt", "run_at"]),
+    "schedule_list": ("List scheduled assistant requests and their status.", {}, []),
     "web_fetch": ("Fetch public web page text.",
                   {"url": {"type": "string"}, "max_length": {"type": "integer"}}, ["url"]),
     "url_to_md": ("Fetch a public page and save readable Markdown in the workspace.",
@@ -62,7 +76,7 @@ SCHEMAS = {
               "timeout": {"type": "integer"}}, ["command"]),
 }
 
-PUBLIC_TOOLS = tuple(name for name in SCHEMAS if name not in {"read_file", "glob_files", "grep_files", "memory_search"})
+PUBLIC_TOOLS = tuple(name for name in SCHEMAS if name not in {"read_file", "glob_files", "grep_files", "memory_search", "user_profile_update"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -221,7 +235,10 @@ class ToolRegistry:
         self.agent_id = agent_id
         self.scope = scope
         self.memory_retriever = MemoryRetriever(memory_store) if scope and memory_store and config["memory"]["search_enabled"] else None
-        self.grants = tuple(dict.fromkeys((*grants, "memory_search"))) if self.memory_retriever else tuple(grants)
+        intrinsic = ("user_profile_update",)
+        if self.memory_retriever:
+            intrinsic += ("memory_search",)
+        self.grants = tuple(dict.fromkeys((*grants, *intrinsic))) if scope else tuple(grants)
         self.config = config
 
     def schemas(self) -> list[dict]:
@@ -364,6 +381,23 @@ class ToolRegistry:
                 return ToolResult(json.dumps(result, ensure_ascii=False))
             except (ValueError, KeyError, TypeError, PermissionError, OSError) as error:
                 return ToolResult(f"memory search failed: {type(error).__name__}", False)
+        if name in {"user_profile_update", "plan_update", "plan_check", "schedule_create", "schedule_list"}:
+            if name not in self.grants or self.scope is None or not isinstance(arguments, dict):
+                return ToolResult("tool is not granted", False)
+            try:
+                if name == "user_profile_update":
+                    output = UserProfile(self.config["home"], self.config["user_profile"]["max_chars"]).add(arguments["fact"])
+                elif name in {"schedule_create", "schedule_list"}:
+                    scheduler = ScheduleStore(self.config["home"], self.config["schedule"])
+                    output = (scheduler.create(arguments["prompt"], arguments["run_at"], arguments.get("interval_seconds"))
+                              if name == "schedule_create" else scheduler.list())
+                else:
+                    plan = DynamicPlan(self.config["home"], self.scope, self.agent_id, self.config["limits"]["max_plan_steps"])
+                    output = (plan.update(arguments["steps"], arguments["reason"]) if name == "plan_update" else
+                              plan.check(arguments["step_id"], arguments["passed"], arguments["evidence"]))
+                return ToolResult(json.dumps(output, ensure_ascii=False))
+            except (OSError, ValueError, KeyError, TypeError) as error:
+                return ToolResult(f"tool failed: {type(error).__name__}", False)
         if request.name not in {"web_fetch", "url_to_md", "bash"}:
             return self.execute_sync(request)
         if request.name not in self.grants:

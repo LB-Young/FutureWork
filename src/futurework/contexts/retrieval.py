@@ -182,7 +182,7 @@ class MemoryRetriever:
     def _speaker(self, actor_id: str) -> str:
         if actor_id == "assistant":
             return self.store.assistant_name
-        path = self.store.home / "agents" / f"{actor_id}.toml"
+        path = self.store.profile_path(ScopeKey("agent", actor_id)).with_suffix(".toml")
         if not path.is_file():
             return ""
         with path.open("rb") as handle:

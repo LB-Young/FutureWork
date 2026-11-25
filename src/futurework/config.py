@@ -55,6 +55,12 @@ def load_config(home: Path) -> dict:
     if compact["preserve_head_chars"] + compact["preserve_tail_chars"] >= compact["max_inline_message_chars"]:
         raise ValueError("compaction inline message limit must exceed preserved head and tail")
     config["agent_extensions"] = {agent_id: item.get("extensions", {}) for agent_id, item in raw["agents"].items()}
+    config["user_profile"] = raw["settings"]["context"].get("user_profile", {"max_chars": 500})
+    if any(type(config["schedule"].get(key)) is not int or config["schedule"][key] <= 0
+           for key in ("poll_seconds", "min_interval_seconds", "max_prompt_chars")):
+        raise ValueError("schedule settings must be positive integers")
+    if type(config["user_profile"].get("max_chars")) is not int or not 1 <= config["user_profile"]["max_chars"] <= 500:
+        raise ValueError("context.toml user_profile.max_chars must be between 1 and 500")
     config["model"]["available_models"] = list(raw["models"]["models"])
     if config["model"]["default_model"] not in config["model"]["available_models"]:
         raise ValueError("app.toml default_model must name an alias in models.toml")

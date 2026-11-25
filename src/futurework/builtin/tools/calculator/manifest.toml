@@ -1,6 +1,0 @@
-# Calculator tool manifest. The handler is a future execution boundary.
-schema_version = 1
-id = "calculator"
-version = "0.1.0"
-kind = "tool"
-enabled = false

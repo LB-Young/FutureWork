@@ -6,7 +6,7 @@
 
 ## 1. 核心原则
 
-1. **配置文件定义身份，数据库保存运行状态。** 规划使用 `~/.futurework/agents/<id>.toml` 和 `~/.futurework/teams/<id>.toml` 作为 Agent 与群聊定义的来源。消息、任务、审批、未读数存入数据库；摘要与记忆按独立作用域存储。
+1. **配置文件定义身份，数据库保存运行状态。** 规划使用 `~/.FutureWork/agents/<id>.toml` 和 `~/.FutureWork/teams/<id>.toml` 作为 Agent 与群聊定义的来源。消息、任务、审批、未读数存入数据库；摘要与记忆按独立作用域存储。
 2. **一个 ID 对应一个配置文件。** 文件名、文件内 `id` 和数据库投影 ID 必须相同。Agent 与群聊各用自己的命名空间；不要用展示名称、数组下标或文件路径作为运行时主键。
 3. **上下文按作用域隔离。** 小未对话使用 `(workspace_id, assistant, assistant_id)`；Agent 私聊使用 `(workspace_id, agent, agent_id)`；群聊使用 `(workspace_id, group, group_id)`；任务使用短期作用域 `(workspace_id, task, task_id)`。
 4. **群成员共享群上下文，不共享私聊上下文。** Agent 在群聊中可用自身角色配置和该群的历史、摘要及共享记忆；不得自动读取自己与用户的私聊，也不得读取其他群的历史。
@@ -19,16 +19,20 @@
 
 未来工程以 Python 包发布，在项目根目录执行 `python -m pip install -e .` 后，应能从任意工作目录使用 `futurework` 命令或 `python -m futurework`。`pyproject.toml` 声明包发现、静态页面与内置默认配置的 package data、依赖及 `futurework` 命令入口；项目运行时不得依赖当前工作目录或源码树中的相对路径。
 
-`pip install -e .` 负责安装包和命令入口。**首次执行 `futurework init` 或 `futurework serve` 时自动创建 `~/.futurework/`**；`serve` 内部先执行幂等初始化，再加载配置。这样普通安装、可编辑安装和升级都遵循相同规则，安装器不会在构建阶段改写用户目录。`futurework init` 用于希望启动前先检查或手工编辑配置的用户；`futurework paths` 显示实际路径。用 `FUTUREWORK_HOME` 或 `--home` 指定另一目录时，初始化和读取都只作用于该目录。
+`pip install -e .` 负责安装包和命令入口。**首次执行 `futurework init` 或 `futurework serve` 时自动创建 `~/.FutureWork/`**；`serve` 内部先执行幂等初始化，再加载配置。这样普通安装、可编辑安装和升级都遵循相同规则，安装器不会在构建阶段改写用户目录。`futurework init` 用于希望启动前先检查或手工编辑配置的用户；`futurework paths` 显示实际路径。用 `FUTUREWORK_HOME` 或 `--home` 指定另一目录时，初始化和读取都只作用于该目录。
+
+当前实现已经把包内占位的 `builtin/` 更名为 `abilities/`，包含 `tools`、`skills`、`mcp`、`workflows`、`friends`、`teams` 六类。首次初始化会补齐内置好友和群的 TOML：小未、小T、小V及多媒体群；旧 `~/.futurework` 存在且新目录缺失时先复制，再补齐缺失文件。用户侧也创建 `abilities/` 同样的六类目录，新增好友/群配置参与启动加载，Skill 优先从用户能力目录读取。`user.md` 初始为空，所有 Agent 提示词读取至多 500 字；模型可通过受限工具追加明确的用户事实。动态计划 Skill 为小未提供步骤与验收规则；定时任务保存在 `data/schedules/`，服务运行时轮询。图片/视频好友目前是文本协作配置，媒体附件和生成/编辑执行器仍需接入。
 
 首次初始化只复制缺失的内置示例，不覆盖用户已有 TOML、Skill、Workflow、MCP 或记忆。旧版本升级不自动重置用户配置；需要迁移时先备份、校验 schema，再原子写入。用户目录权限默认仅当前用户可读写。初始化失败时给出具体文件路径和原因，不允许带着半套配置启动。
 
 ### 2.2 用户目录：配置和运行数据的真实位置
 
 ```text
-~/.futurework/
+~/.FutureWork/
 ├── app.toml                         # 服务、默认策略、预算和路径
 ├── models.toml                      # 多平台实例与模型别名
+├── user.md                          # 最多 500 字的共享用户信息与偏好
+├── abilities/                      # 用户自建 tools/skills/mcp/workflows/friends/teams
 ├── agents/
 │   ├── assistant.toml               # 小未
 │   ├── assistant.md                 # 小未人物长期记忆；角色、性格、职责
@@ -96,7 +100,7 @@ FutureWork/
 │       ├── assistant.md
 │       └── agents/                  # 可选长提示词；由 Agent TOML 显式引用
 ├── extensions/
-│   ├── builtin/                    # 随应用版本发布；代码审查后入库
+│   ├── abilities/                   # 随应用版本发布；代码审查后入库
 │   │   ├── tools/
 │   │   │   ├── calculator/
 │   │   │   │   ├── manifest.toml    # ID、版本、参数 schema、风险和入口
@@ -226,13 +230,13 @@ FutureWork/
         └── tools/<publisher>/<id>/<version>/
 ```
 
-这是**目标模块组织方式**。Python 包位于 `src/futurework/`；上面的 `backend/` 和 `frontend/` 表达后端模块与页面资源的职责，不要求按这棵概念树在仓库根目录创建同名文件夹。`config/` 和 `data/extensions/` 所指的可写内容规划放在 `~/.futurework/`：`app.toml`、`models.toml`、`agents/`、`teams/`、`skills/`、`mcp/`、`workflows/`、`memory/`、`data/`。内置默认文件随包发布，首次运行复制到用户目录；以后以用户目录为准。当前静态页面原型位于 `frontend/`，其组件目录仍是骨架。
+这是**目标模块组织方式**。Python 包位于 `src/futurework/`；上面的 `backend/` 和 `frontend/` 表达后端模块与页面资源的职责，不要求按这棵概念树在仓库根目录创建同名文件夹。`config/` 和 `data/extensions/` 所指的可写内容规划放在 `~/.FutureWork/`：`app.toml`、`models.toml`、`agents/`、`teams/`、`skills/`、`mcp/`、`workflows/`、`memory/`、`data/`。内置默认文件随包发布，首次运行复制到用户目录；以后以用户目录为准。当前静态页面原型位于 `frontend/`，其组件目录仍是骨架。
 
 ## 3. 配置文件契约
 
 ### 3.1 Agent：一个文件定义一个好友
 
-`~/.futurework/agents/research.toml` 目标配置示例：
+`~/.FutureWork/agents/research.toml` 目标配置示例：
 
 ```toml
 schema_version = 1
@@ -255,12 +259,12 @@ temperature = 0.4                   # 覆盖全局默认值；可省略
 "analysis.summary" = 0.80
 
 [permissions]
-tools = ["builtin/web_search@1.0.0"]
+tools = ["abilities/web_search@1.0.0"]
 approval_policy = "standard"       # 引用 tools.toml 中的策略
 data_scopes = ["user_shared_files"]
 
 [extensions]
-skills = ["builtin/research-brief@1.0.0"]
+skills = ["abilities/research-brief@1.0.0"]
 mcp_servers = []
 workflows = []
 
@@ -280,11 +284,11 @@ profile = "standard"                 # 引用 runtime.toml；小未可用 orches
 max_turns = 8                         # 只能在全局硬上限内覆盖
 ```
 
-`assistant.toml` 使用相同 schema，增加 `kind = "assistant"`、`system = true` 和规划权限；系统内恰好一个 assistant。`prompt_file` 的相对路径只能落在 `~/.futurework/prompts/` 内。小型 Agent 可直接用 TOML 的 `system_prompt` 字段；长提示词用独立 Markdown 文件，仍由该 Agent 配置文件引用。
+`assistant.toml` 使用相同 schema，增加 `kind = "assistant"`、`system = true` 和规划权限；系统内恰好一个 assistant。`prompt_file` 的相对路径只能落在 `~/.FutureWork/prompts/` 内。小型 Agent 可直接用 TOML 的 `system_prompt` 字段；长提示词用独立 Markdown 文件，仍由该 Agent 配置文件引用。
 
 ### 3.2 Group：一个文件定义一个群聊
 
-`~/.futurework/teams/launch.toml` 中控群示例：
+`~/.FutureWork/teams/launch.toml` 中控群示例：
 
 ```toml
 schema_version = 1
@@ -323,7 +327,7 @@ external_share = "approval_required"
 
 [extensions]
 skills = []                            # 群共享操作说明，不扩大成员工具权限
-workflows = ["builtin/product-launch@1.0.0"]
+workflows = ["abilities/product-launch@1.0.0"]
 mcp_allowlist = []                     # 群可用连接上限；成员仍须独立授权
 ```
 
@@ -341,7 +345,7 @@ mcp_allowlist = []                     # 群可用连接上限；成员仍须独
 
 #### 3.3.1 多平台模型注册与适配器
 
-`~/.futurework/models.toml` 将**平台实例**与**模型别名**分开。平台实例决定协议、接口地址和密钥环境变量；别名决定平台实例、原生模型 ID、能力、上下文窗口和预算参数。Agent 的 `[model].id` 只引用别名，不直接写 URL 或密钥。用户可以同时配置多个平台，甚至为同一供应商配置两个不同账户。示例：
+`~/.FutureWork/models.toml` 将**平台实例**与**模型别名**分开。平台实例决定协议、接口地址和密钥环境变量；别名决定平台实例、原生模型 ID、能力、上下文窗口和预算参数。Agent 的 `[model].id` 只引用别名，不直接写 URL 或密钥。用户可以同时配置多个平台，甚至为同一供应商配置两个不同账户。示例：
 
 ```toml
 schema_version = 1
@@ -431,11 +435,11 @@ supports_streaming = true
 
 `runtime.toml` 统一定义最大循环次数、超时、重试、并发、token/费用硬上限和 checkpoint 周期；Agent TOML、群 TOML 只能在硬上限内收紧。`RunSpec` 固定 `agent_config_version?`、`group_config_version?`、`scope_key`、`context_cursor`、`task_id?` 和权限快照。权限变化只影响新运行；已暂停运行恢复时仍需重新检查敏感工具授权和审批有效期。
 
-**当前实现范围：** Team TOML 的 `mode` 决定 Swarm 或小未中控的单轮执行；模型网关已支持 OpenAI 兼容文本接口和 Anthropic Messages 文本接口，默认别名指向 DeepSeek。完整多轮群计划、可恢复 checkpoint、群成员子执行记录、工具调用和记忆检索仍待实现。
+**当前实现范围：** Team TOML 的 `mode` 决定 Swarm 或小未中控的单轮执行；模型网关支持 OpenAI 兼容文本接口和 Anthropic Messages 文本接口，默认别名指向 DeepSeek。通用工具调用、分层记忆检索、动态计划工具、用户画像和定时任务已经接通。完整多轮群计划、可恢复 checkpoint、独立的群成员子执行记录及媒体执行器仍待实现。
 
 ### 3.5 Tool、Skill、MCP 与 Workflow 扩展目录
 
-`extensions/builtin/` 放随应用发布且经过代码审查的内置扩展；`data/extensions/` 放用户后续安装的版本化扩展（本地开发路径，生产应为独立持久卷或扩展仓库）。两者由 `extension_system/registry.py` 统一索引，但**安装、启用、授予 Agent/群使用权**是三个独立动作。安装成功不等于自动进入任意 Agent 的上下文或获得工具权限。
+`extensions/abilities/` 放随应用发布且经过代码审查的内置扩展；`data/extensions/` 放用户后续安装的版本化扩展（本地开发路径，生产应为独立持久卷或扩展仓库）。两者由 `extension_system/registry.py` 统一索引，但**安装、启用、授予 Agent/群使用权**是三个独立动作。安装成功不等于自动进入任意 Agent 的上下文或获得工具权限。
 
 | 类型 | 目录内容 | 谁调用 / 关键边界 |
 | --- | --- | --- |
@@ -444,7 +448,7 @@ supports_streaming = true
 | MCP | 服务器连接/启动 manifest、可发现工具 schema、超时与资源限制 | `mcp_client.py` 建立连接；每个 MCP 工具仍进入统一 ToolDispatch 授权与审计链 |
 | Workflow | `workflow.toml` + 可选模板、步骤 schema | `workflow_runner.py` 校验 DAG 后调度；步骤指向 Agent/能力/工具/审批点，不能直接绕过 Runtime |
 
-扩展引用统一采用 `publisher/id@version`，类型由配置字段区分，例如 `skills = ["builtin/research-brief@1.0.0"]`。运行开始时将解析结果及内容哈希固定在 `RunSpec`；任务执行中升级扩展不改变该次运行。配置引用不存在、版本不兼容、依赖缺失或风险策略被降低时，配置发布失败。
+扩展引用统一采用 `publisher/id@version`，类型由配置字段区分，例如 `skills = ["abilities/research-brief@1.0.0"]`。运行开始时将解析结果及内容哈希固定在 `RunSpec`；任务执行中升级扩展不改变该次运行。配置引用不存在、版本不兼容、依赖缺失或风险策略被降低时，配置发布失败。
 
 **安装流程：** 从批准的来源获取包 → 暂存目录 → 校验 manifest/schema、内容哈希、版本与依赖 → 列出所需权限和可执行代码 → 用户审批高风险扩展 → 原子安装到 `data/extensions/<type>/<publisher>/<id>/<version>/` → 登记版本 → 由用户显式启用并分配到 Agent/群配置。更新安装新版本，不覆盖旧版本；支持回滚和停用。外部包默认不自动更新。
 
@@ -548,7 +552,7 @@ sequenceDiagram
   API-->>U: 返回可用 Agent/群聊
 ```
 
-文件是权威来源，数据库是可查询的投影。**不能在生产多实例里让每个 API Pod 写自己的本地目录。** 本地版可直接原子写入 `~/.futurework/agents/` 或 `~/.futurework/teams/`；生产版使用独立的可写配置仓库/配置服务，验证后提交版本，再由各实例同步。若文件写入成功而数据库事务失败，`reconciler.py` 根据文件哈希重建投影；若数据库中有未对应文件的临时草案，不将其视为 active。配置写入必须有文件锁/版本条件，避免并发覆盖。
+文件是权威来源，数据库是可查询的投影。**不能在生产多实例里让每个 API Pod 写自己的本地目录。** 本地版可直接原子写入 `~/.FutureWork/agents/` 或 `~/.FutureWork/teams/`；生产版使用独立的可写配置仓库/配置服务，验证后提交版本，再由各实例同步。若文件写入成功而数据库事务失败，`reconciler.py` 根据文件哈希重建投影；若数据库中有未对应文件的临时草案，不将其视为 active。配置写入必须有文件锁/版本条件，避免并发覆盖。
 
 ### 5.2 编辑与审批
 
@@ -556,7 +560,7 @@ sequenceDiagram
 
 ## 6. 未来实现顺序
 
-1. **建立逐文件配置。** 定义 `~/.futurework/agents/`、`~/.futurework/teams/`、`models.toml` 的 schema、内容哈希、版本冲突检查、加载与数据库投影；保留已有原型中的 Agent 和群名称。
+1. **建立逐文件配置。** 定义 `~/.FutureWork/agents/`、`~/.FutureWork/teams/`、`models.toml` 的 schema、内容哈希、版本冲突检查、加载与数据库投影；保留已有原型中的 Agent 和群名称。
 2. **引入类型化上下文。** 消息和已读游标带 `scope_type`、`scope_id`、`workspace_id`，建立联合索引，所有查询改用 `ScopeKey`。检查无同名 ID 混淆和跨群读取。
 3. **建立模型网关及三种 Runtime。** 按本文设计实现协议适配器、别名注册表、预算与错误映射；先验证 OpenAI 兼容平台及 Anthropic Messages，再按平台实际差异扩展。按会话类型实现 `AssistantRuntime`、`DirectChatRuntime`、`GroupChatRuntime`，共同复用 `AgentExecutor`。
 4. **把群 Runtime 分成两种策略。** 先给 Team 配置增加 `mode` 与预算字段、数据库投影和版本固定，再实现 `SwarmPolicy` 的成员自治和 `ControlledPolicy` 的小未群内计划。页面应显示群模式并允许创建或编辑时选择；模式切换只影响新运行。

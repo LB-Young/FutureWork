@@ -1,6 +1,7 @@
 """Read explicitly enabled user Skill instructions without executing their code."""
 
 import re
+from importlib.resources import files
 from pathlib import Path
 
 
@@ -15,12 +16,21 @@ def load_skills(home: Path, skill_ids: list[str], max_chars: int) -> str:
     for skill_id in skill_ids:
         if not isinstance(skill_id, str) or not SKILL_ID.fullmatch(skill_id):
             raise ValueError(f"invalid Skill ID: {skill_id!r}")
-        path = home / "skills" / skill_id / "SKILL.md"
-        if not path.resolve().is_relative_to((home / "skills").resolve()):
-            raise ValueError(f"Skill path escapes user home: {skill_id}")
-        if not path.is_file():
-            raise ValueError(f"missing Skill: {path}")
-        content = path.read_text(encoding="utf-8")
+        candidates = [home / "abilities" / "skills" / skill_id / "SKILL.md",
+                      home / "skills" / skill_id / "SKILL.md"]
+        content = None
+        for path in candidates:
+            if not path.resolve().is_relative_to(path.parent.parent.resolve()):
+                raise ValueError(f"Skill path escapes user home: {skill_id}")
+            if path.is_file():
+                content = path.read_text(encoding="utf-8")
+                break
+        if content is None:
+            resource = files("futurework").joinpath("abilities", "skills", skill_id, "SKILL.md")
+            if resource.is_file():
+                content = resource.read_text(encoding="utf-8")
+        if content is None:
+            raise ValueError(f"missing Skill: {skill_id}")
         parts.append(f"Skill {skill_id}:\n{content}")
     result = "\n\n".join(parts)
     if len(result) > max_chars:

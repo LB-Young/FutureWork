@@ -1,0 +1,6 @@
+# 内置动态计划 Skill；工具授权仍由 Agent TOML 决定。
+schema_version = 1
+id = "dynamic_plan"
+version = "0.1.0"
+kind = "skill"
+enabled = true

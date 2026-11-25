@@ -1,0 +1,7 @@
+# 内置工具通过 futurework.runtime.tool_dispatch.ToolRegistry 执行，权限由 Agent TOML 控制。
+schema_version = 1
+id = "write"
+version = "0.1.0"
+kind = "tool"
+executor = "futurework.runtime.tool_dispatch.ToolRegistry"
+enabled = true

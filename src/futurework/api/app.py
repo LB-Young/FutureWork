@@ -1,6 +1,7 @@
 """Assemble the local Agent Team API, workflows, and packaged web application."""
 
 import asyncio
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from uuid import uuid4
 
@@ -10,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from futurework.config import WEB_DIRECTORY, database_path, load_config
+from futurework.abilities.tools.schedule import ScheduleStore
 from futurework.database import Database
 from futurework.config_store.writer import ConfigStore
 from futurework.contexts.store import MemoryStore
@@ -98,6 +100,29 @@ def create_app(home: str | Path | None = None, db_path: str | Path | None = None
     task_runtime = TaskRuntime(database=database, config=config, config_store=config_store,
                                message_service=message_service, agent_service=agent_service,
                                agent_runtime=agent_runtime)
+    scheduler = ScheduleStore(user_home, config["schedule"])
+
+    async def scheduled_request(job: dict) -> None:
+        target = {"id": "assistant", "kind": "assistant", "name": config["ui"]["assistant_name"]}
+        params = RunParams.from_http(target, job["prompt"], f"schedule:{job['id']}:{job['last_run_at']}")
+        await task_runtime.handle(params, lambda task: asyncio.create_task(task_runtime.execute_assigned(task)))
+
+    async def schedule_loop() -> None:
+        while True:
+            await scheduler.run_due(scheduled_request)
+            await asyncio.sleep(config["schedule"]["poll_seconds"])
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        schedule_task = asyncio.create_task(schedule_loop())
+        try:
+            yield
+        finally:
+            schedule_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await schedule_task
+
+    app.router.lifespan_context = lifespan
 
     @app.get("/api/v1/health")
     def health():

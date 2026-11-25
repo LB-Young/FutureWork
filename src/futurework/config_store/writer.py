@@ -24,7 +24,8 @@ class ConfigStore:
         """Validate the kind and ID before constructing a user-owned path."""
         if kind not in {"agents", "teams"} or not SAFE_ID.fullmatch(item_id):
             raise ValueError("invalid config kind or ID")
-        return self.home / kind / f"{item_id}.toml"
+        custom = self.home / "abilities" / ("friends" if kind == "agents" else "teams") / f"{item_id}.toml"
+        return custom if custom.is_file() else self.home / kind / f"{item_id}.toml"
 
     @contextmanager
     def batch(self):

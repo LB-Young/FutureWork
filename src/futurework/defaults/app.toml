@@ -1,4 +1,4 @@
-# Application defaults. User-owned copy lives at ~/.futurework/app.toml.
+# Application defaults. User-owned copy lives at ~/.FutureWork/app.toml.
 [server]
 host = "127.0.0.1"
 port = 8000
@@ -77,6 +77,11 @@ max_command_chars = 2000
 shell_timeout_seconds = 30
 shell_env_allowlist = ["PATH", "LANG", "LC_ALL", "TMPDIR"]
 
+[schedule]
+poll_seconds = 10
+min_interval_seconds = 60
+max_prompt_chars = 4000
+
 [execution]
 run_assigned_steps_with_model = true
 step_instruction = "请处理以下子任务并给出可交付的初稿。不能声称访问了未提供的外部工具、文件或实时数据。"
@@ -84,6 +89,48 @@ step_instruction = "请处理以下子任务并给出可交付的初稿。不能
 [runtime]
 max_parallel_agents = 3
 max_model_calls = 16
+
+[[planner.rules]]
+capability = "media.image.generate"
+keywords = ["生成图片", "画图", "绘图", "图片生成"]
+title = "图片创作需求与能力检查"
+agent_name = "小T"
+agent_role = "图片理解、生成与编辑"
+
+[[planner.rules]]
+capability = "media.image.edit"
+keywords = ["编辑图片", "修改图片", "修图"]
+title = "图片编辑需求与能力检查"
+agent_name = "小T"
+agent_role = "图片理解、生成与编辑"
+
+[[planner.rules]]
+capability = "media.image.understand"
+keywords = ["理解图片", "分析图片", "看图"]
+title = "图片理解需求与能力检查"
+agent_name = "小T"
+agent_role = "图片理解、生成与编辑"
+
+[[planner.rules]]
+capability = "media.video.generate"
+keywords = ["生成视频", "制作视频", "视频生成"]
+title = "视频创作需求与能力检查"
+agent_name = "小V"
+agent_role = "视频理解、生成与编辑"
+
+[[planner.rules]]
+capability = "media.video.edit"
+keywords = ["编辑视频", "剪辑视频", "修改视频"]
+title = "视频编辑需求与能力检查"
+agent_name = "小V"
+agent_role = "视频理解、生成与编辑"
+
+[[planner.rules]]
+capability = "media.video.understand"
+keywords = ["理解视频", "分析视频", "看视频"]
+title = "视频理解需求与能力检查"
+agent_name = "小V"
+agent_role = "视频理解、生成与编辑"
 
 [[planner.rules]]
 capability = "analysis.competitor"

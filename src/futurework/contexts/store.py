@@ -42,11 +42,15 @@ class MemoryStore:
     def profile_path(self, scope: ScopeKey) -> Path:
         """Keep long-term identity beside the matching TOML definition."""
         category = "teams" if scope.kind == "group" else "agents"
+        custom = self.home / "abilities" / ("teams" if scope.kind == "group" else "friends") / f"{scope.id}.toml"
+        if custom.is_file():
+            return custom.with_suffix(".md")
         return self.home / category / f"{scope.id}.md"
 
     def ensure_profiles(self) -> None:
         """Create missing identity Markdown without replacing user edits."""
-        for category, kind in (("agents", "agent"), ("teams", "group")):
+        for category, kind in (("agents", "agent"), ("teams", "group"),
+                               ("abilities/friends", "agent"), ("abilities/teams", "group")):
             for path in sorted((self.home / category).glob("*.toml")):
                 scope = ScopeKey("assistant" if path.stem == "assistant" else kind, path.stem)
                 self.ensure_profile(scope)
@@ -189,13 +193,13 @@ class MemoryStore:
         """Load only the selected scope's experiences plus allowed identity files."""
         sections = []
         if actor_id == "assistant":
-            for category in ("agents", "teams"):
+            for category in ("agents", "teams", "abilities/friends", "abilities/teams"):
                 for profile in sorted((self.home / category).glob("*.md")):
                     if not profile.with_suffix(".toml").is_file():
                         continue
                     sections.append(f"【{category}/{profile.name}】\n{profile.read_text(encoding='utf-8')}")
         else:
-            profile = self.home / "agents" / f"{actor_id}.md"
+            profile = self.profile_path(ScopeKey("agent", actor_id))
             if profile.is_file():
                 sections.append(f"【{profile.name}】\n{profile.read_text(encoding='utf-8')}")
         if scope.kind == "group":

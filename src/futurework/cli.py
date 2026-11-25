@@ -9,7 +9,7 @@ from futurework.home import ensure_home
 def main(argv: list[str] | None = None) -> int:
     """Parse a command, initialize the selected home, and run its entry point."""
     parser = argparse.ArgumentParser(prog="futurework")
-    parser.add_argument("--home", help="Override ~/.futurework")
+    parser.add_argument("--home", help="Override ~/.FutureWork")
     parser.add_argument("command", nargs="?", choices=("init", "paths", "doctor", "serve"), default="serve")
     args = parser.parse_args(argv)
     home = ensure_home(args.home)
