@@ -11,18 +11,20 @@ from futurework.integrations.model_gateway.gateway import ModelGateway
 from futurework.integrations.model_gateway.types import ModelRequest
 from futurework.runtime.run_spec import AgentRun
 from futurework.runtime.tool_dispatch import ToolRegistry
+from futurework.runtime.tool_execution import ToolCall, ToolExecutionLayer
 
 
 class AgentRuntime:
     """Execute one AgentRun using owned model and tool dependencies."""
 
     def __init__(self, config: dict, model_gateway: ModelGateway | None = None,
-                 memory_store: MemoryStore | None = None) -> None:
+                 memory_store: MemoryStore | None = None, approval_store=None) -> None:
         self.config = config
         self.model_gateway = model_gateway or ModelGateway(config)
         self.memory_store = memory_store or MemoryStore(config["home"], config["memory"], config["ui"]["assistant_name"])
         self.memory_store.ensure_profiles()
         self.compactor = ContextCompactor(config, self.model_gateway, self.memory_store)
+        self.approval_store = approval_store
 
     async def respond(self, agent: dict, history: list[dict], scope: ScopeKey | None = None) -> str:
         """Convert persistence records into a scoped execution object."""
@@ -57,6 +59,9 @@ class AgentRuntime:
             grants = tuple(dict.fromkeys((*grants, "plan_update", "plan_check", "schedule_create", "schedule_list")))
         tools_for_run = ToolRegistry(run.agent_id, grants, self.config,
                                      scope=run.scope, memory_store=self.memory_store)
+        tool_executor = ToolExecutionLayer(tools_for_run, self.config, self.memory_store,
+                                           approval_store=self.approval_store,
+                                           require_approval=run.require_tool_approval)
         tools = tools_for_run.schemas() if self.model_gateway.supports_tools(run.model_alias) else []
         for _ in range(self.config["tool_runtime"]["max_rounds"] + 1):
             compacted = await self.compactor.compact(ModelRequest(run.model_alias, messages, tools), run.scope, run.agent_id)
@@ -71,6 +76,7 @@ class AgentRuntime:
                              "tool_calls": [{"id": call.id, "type": "function", "function": {"name": call.name,
                                              "arguments": json.dumps(call.arguments)}} for call in result.tool_calls]})
             for call in result.tool_calls:
-                output = await tools_for_run.execute(call.name, call.arguments)
+                output = await tool_executor.execute(ToolCall(call.id, run.agent_id, run.scope,
+                                                              call.name, call.arguments))
                 messages.append({"role": "tool", "tool_call_id": call.id, "content": output.content})
         raise RuntimeError("模型工具调用超过最大轮数")

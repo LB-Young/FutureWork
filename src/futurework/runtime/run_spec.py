@@ -17,6 +17,7 @@ class AgentRun:
     history: tuple[dict[str, Any], ...]
     config: dict[str, Any]
     scope: ScopeKey
+    require_tool_approval: bool = True
 
     @classmethod
     def from_records(cls, agent: dict, history: list[dict], config: dict,
@@ -25,4 +26,5 @@ class AgentRun:
         return cls(agent_id=agent["id"], name=agent["name"], role=agent["role"],
                    model_alias=agent["model"], tools=tuple(agent.get("tools", [])),
                    history=tuple(dict(item) for item in history), config=config,
-                   scope=scope or ScopeKey("assistant" if agent["id"] == "assistant" else "agent", agent["id"]))
+                   scope=scope or ScopeKey("assistant" if agent["id"] == "assistant" else "agent", agent["id"]),
+                   require_tool_approval=agent.get("approval", True))

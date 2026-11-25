@@ -87,13 +87,17 @@ class AgentService:
                 raise AgentServiceError(404, "approval not found")
             if row["status"] != "pending" or row["expires_at"] <= utc_now():
                 raise AgentServiceError(409, "approval is no longer pending")
-            if decision == "approve":
+            proposal = json.loads(row["proposal"])
+            is_tool_call = proposal.get("kind") == "tool_call"
+            if decision == "approve" and not is_tool_call:
                 self.apply_patch(connection, write_config, row["agent_id"], json.loads(row["proposal"]))
             status = "approved" if decision == "approve" else "rejected"
             connection.execute("UPDATE approvals SET status=?, decided_at=? WHERE id=? AND status='pending'",
                                (status, utc_now(), approval_id))
             self.message_service.insert(connection, row["conversation_id"], "system", "系统",
-                                        "配置审批已通过。" if status == "approved" else "配置审批已拒绝。")
+                                        ("工具调用审批已通过。" if is_tool_call else "配置审批已通过。")
+                                        if status == "approved" else
+                                        ("工具调用审批已拒绝。" if is_tool_call else "配置审批已拒绝。"))
             self.database.emit(connection, "approval.resolved", {"approval_id": approval_id,
                                                                    "conversation_id": row["conversation_id"], "status": status})
         return {"id": approval_id, "status": status}

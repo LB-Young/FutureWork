@@ -51,7 +51,7 @@ def test_model_requested_write_changes_workspace_file(tmp_path, monkeypatch):
     original = httpx.AsyncClient
     monkeypatch.setattr(openai_chat.httpx, "AsyncClient", lambda **kwargs: original(transport=httpx.MockTransport(handle), **kwargs))
     monkeypatch.setenv("DEEPSEEK_API_KEY", "test-only-key")
-    agent = {"id": "code", "name": "阿码", "role": "开发", "model": "default_fast", "tools": ["write"]}
+    agent = {"id": "code", "name": "阿码", "role": "开发", "model": "default_fast", "tools": ["write"], "approval": False}
     assert asyncio.run(respond(agent, [{"from": "me", "text": "写一份报告"}], config)) == "已写入报告"
     assert (config["home"] / "workspace" / "report.txt").read_text() == "done"
     assert requests[0]["tools"][0]["function"]["name"] == "write"

@@ -78,6 +78,8 @@ SCHEMAS = {
 }
 
 PUBLIC_TOOLS = tuple(name for name in SCHEMAS if name not in {"read_file", "glob_files", "grep_files", "memory_search", "user_profile_update"})
+REPLAY_SAFE_TOOLS = frozenset({"calculator", "read", "read_file", "glob", "glob_files", "grep", "grep_files",
+                               "memory_search", "skill_load", "web_fetch", "schedule_list"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,6 +97,9 @@ class ToolResult:
 
     content: str
     success: bool = True
+    error_code: str = ""
+    attempts: int = 1
+    approval_id: str = ""
 
 
 def schemas_for(grants: list[str] | tuple[str, ...]) -> list[dict]:
@@ -132,7 +137,7 @@ class ToolRegistry:
             return ToolResult("invalid tool arguments", False)
         return None
 
-    def execute_sync(self, request: ToolRequest) -> ToolResult:
+    def execute_sync(self, request: ToolRequest, *, raise_errors: bool = False) -> ToolResult:
         """Call a synchronous built-in handler after grant and argument checks."""
         denied = self._authorized(request)
         if denied:
@@ -156,9 +161,11 @@ class ToolRegistry:
             return ToolResult(content[:limit] or "(no result)")
         except (OSError, ValueError, TypeError, KeyError, PermissionError, SyntaxError,
                 ZeroDivisionError, OverflowError, re.error) as error:
+            if raise_errors:
+                raise
             return ToolResult(f"tool failed: {type(error).__name__}", False)
 
-    async def execute(self, name: str, arguments: dict[str, Any]) -> ToolResult:
+    async def execute(self, name: str, arguments: dict[str, Any], *, raise_errors: bool = False) -> ToolResult:
         """Call the bound scoped, network, shell or synchronous ability handler."""
         request = ToolRequest(self.agent_id, name, arguments)
         denied = self._authorized(request)
@@ -191,9 +198,11 @@ class ToolRegistry:
                 content, success = await bash_handler.run(arguments, self.config)
                 return ToolResult(content, success)
             else:
-                return self.execute_sync(request)
+                return self.execute_sync(request, raise_errors=raise_errors)
             return ToolResult(content)
         except (OSError, ValueError, TypeError, KeyError, PermissionError, httpx.HTTPError) as error:
+            if raise_errors:
+                raise
             return ToolResult(f"tool failed: {type(error).__name__}", False)
 
 

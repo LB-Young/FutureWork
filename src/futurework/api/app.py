@@ -17,6 +17,7 @@ from futurework.config_store.writer import ConfigStore
 from futurework.contexts.store import MemoryStore
 from futurework.home import ensure_home
 from futurework.model import AgentRuntime
+from futurework.runtime.tool_approvals import ToolApprovalStore
 from futurework.runtime.run_params import RunParams
 from futurework.runtime.task_runtime import RequestConflict, TaskRuntime
 from futurework.services.agent_service import AgentService, AgentServiceError
@@ -96,7 +97,8 @@ def create_app(home: str | Path | None = None, db_path: str | Path | None = None
     async def service_error(request: Request, error: AgentServiceError | GroupServiceError):
         return JSONResponse(status_code=error.status_code, content={"detail": error.detail})
 
-    agent_runtime = AgentRuntime(config, memory_store=memory_store)
+    agent_runtime = AgentRuntime(config, memory_store=memory_store,
+                                 approval_store=ToolApprovalStore(database, message_service, config))
     task_runtime = TaskRuntime(database=database, config=config, config_store=config_store,
                                message_service=message_service, agent_service=agent_service,
                                agent_runtime=agent_runtime)

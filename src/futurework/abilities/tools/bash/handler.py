@@ -41,5 +41,9 @@ async def run(args: dict, config: dict) -> tuple[str, bool]:
         process.kill()
         await process.wait()
         return "command timed out", False
+    except asyncio.CancelledError:
+        process.kill()
+        await process.wait()
+        raise
     content = f"returncode: {process.returncode}\nstdout:\n{stdout.decode(errors='replace')}\nstderr:\n{stderr.decode(errors='replace')}"
     return content[:settings["max_result_chars"]], process.returncode == 0

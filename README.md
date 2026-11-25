@@ -265,7 +265,7 @@ agent_id = "assistant"
 
 当前消息执行链为 `POST /conversations/{id}/messages → RunParams.from_http → TaskFactory.create → TaskRuntime.run → 对应助理、好友或群聊 Runtime`。`RunParams` 包含入口来源、会话目标快照、消息正文及客户端消息 ID；助理消息先分类为聊天或分派任务。工厂只创建对象，不调用模型、不写数据库。五种 Task 类型是 `assistant_chat`、`assistant_delegation`、`agent_chat`、`group_swarm` 和 `group_controlled`。分派任务持久化任务和步骤，并把同一个 Task 对象交给后台执行；其他对话只保留原有消息记录与 API 响应。查询、配置修改和审批接口仍走各自的业务路径，不会伪装成 Agent 对话任务。
 
-运行时依赖在启动时装配一次：`TaskPlanner` 负责规则拆解和 Agent 匹配；`AssistantRuntime` 负责小未的意图判断和已分派步骤，`DirectChatRuntime` 负责好友私聊，`GroupChatRuntime` 持有 `SwarmPolicy` 或 `GroupController`。它们共享 `AgentRuntime`，后者用 `AgentRun` 固定身份、模型别名、会话历史与工具授权，再调用 `ModelGateway`。模型网关按别名缓存 `ModelAdapter` 实例并按配置重试；单次 Agent 运行的 `ToolRegistry` 同时提供模型可见的工具 schema 和执行时授权检查。`MessageService`、`AgentService`、`GroupService` 负责写入与配置同步。保留的少量模块函数是旧调用方的兼容入口，核心请求路径通过对象方法调用。
+运行时依赖在启动时装配一次：`TaskPlanner` 负责规则拆解和 Agent 匹配；`AssistantRuntime` 负责小未的意图判断和已分派步骤，`DirectChatRuntime` 负责好友私聊，`GroupChatRuntime` 持有 `SwarmPolicy` 或 `GroupController`。它们共享 `AgentRuntime`，后者用 `AgentRun` 固定身份、模型别名、会话历史与工具授权，再调用 `ModelGateway`。模型网关按别名缓存 `ModelAdapter` 实例并按配置重试；单次 Agent 运行的 `ToolRegistry` 提供模型可见 schema 和底层处理器，`ToolExecutionLayer` 对每次模型工具调用做授权、审批、校验、重试和审计。`MessageService`、`AgentService`、`GroupService` 负责写入与配置同步。保留的少量模块函数是旧调用方的兼容入口，核心请求路径通过对象方法调用。
 
 ## 工具、权限与审批
 
@@ -284,7 +284,7 @@ agent_id = "assistant"
 
 默认工作区是 `~/.FutureWork/workspace/`。调整 `~/.FutureWork/app.toml` 的 `[tool_runtime] workspace` 可改变路径；同一配置表还控制工具轮数、每轮调用数、文件大小、网页大小、命令超时和输出长度。工具真正执行前会再次检查该 Agent 的 `tools` 授权。文件工具不能通过 `../` 或指向工作区外的符号链接读取外部文件。新建 Agent 和初始示例 Agent 默认拥有 `calculator`、`read`、`glob`、`grep`、`skill_load`；已有用户目录中的 Agent TOML 不会自动改写。
 
-页面为好友增加 `write`、`edit`、`web_fetch`、`url_to_md` 或 `bash` 等高风险工具授权时会产生**配置变更审批**，批准后写回该好友 TOML。现阶段没有每次工具调用单独弹窗审批；已经授权的工具会在模型请求时直接执行。手工编辑用户自己的 Agent TOML 也可以改变授权，重启后生效。`bash` 还必须额外在 `app.toml` 的 `[tool_runtime]` 中手工开启：
+页面为好友增加 `write`、`edit`、`web_fetch`、`url_to_md` 或 `bash` 等高风险工具授权时会产生**配置变更审批**，批准后写回该好友 TOML。模型实际调用工具时，执行层再次检查 Agent ID、会话作用域和授权；`tools.toml [execution] require_approval_for` 列出的工具会产生**单次调用审批**，显示工具名和具体参数。当前默认包含 `write`、`edit`、`bash`、`url_to_md`、`schedule_create`。用户在待审批区批准后，运行中的调用才继续；拒绝或超时不会执行。审批等待期间如果该 Agent 的授权被撤销，也不会执行。Agent 配置的 `approval = false` 可以跳过单次调用审批，但关闭它本身需要走配置变更审批。手工编辑用户自己的 Agent TOML 也可以改变授权，重启后生效。`bash` 还必须额外在 `app.toml` 的 `[tool_runtime]` 中手工开启：
 
 ```toml
 [tool_runtime]
@@ -292,6 +292,12 @@ allow_shell = true
 ```
 
 只在你信任该 Agent 的模型与输入来源、了解命令能够影响本机文件和网络时启用。`bash` 子进程不会继承模型 API 密钥等环境变量，但这不构成文件系统沙箱。
+
+### 工具执行层与失败重试
+
+`runtime/tool_execution.py` 接收一条固定了调用 ID、Agent ID、作用域、工具名和参数的 `ToolCall`。它先按模型收到的 schema 检查必填字段、字段类型、额外字段与输入长度，再判断授权和是否需要审批。通过后调用 `abilities/tools/<工具名>/handler.py`，校验返回内容类型、结构化 JSON 的形状及输出长度；普通文本超长会截断，结构化 JSON 超长则报错，避免把截断后的非法 JSON 送回模型。每次结果写入当前小未、好友或群聊记忆目录的 `tool_calls.jsonl`，记录决策、调用 ID、参数哈希、尝试次数、各次失败类别和耗时；不在审计日志中复制完整入参。
+
+Bamboo 的工具调用在超时、异常或返回失败时会记录审计并把错误交还 Agent，本身不立即重放该工具；其模型接口把 HTTP `408`、`429`、`5xx` 和传输错误标为可重试，任务层另有有限恢复预算。FutureWork 参考这一分类增加更严格的工具重试：HTTP `408`、`429`、`5xx`，网络连接/读取超时及指定的临时系统错误，属于暂时故障；HTTP `401`、`403`、普通 `4xx`、权限拒绝、审批拒绝、参数与输出校验错误不重试。即使是暂时故障，也只有 `tools.toml [execution] retry_read_tools` 中的可重放读类工具会自动重试；写文件、命令、定时任务创建等有副作用的调用不会重放，以免第一次已生效而第二次重复执行。`max_attempts`、退避间隔、单次调用超时、审批等待和输入输出上限都由该配置表控制。模型网关的重试另由 `app.toml [model]` 控制，两者相互独立。未连接审批存储的独立运行会拒绝需要单次审批的调用。
 
 手工安装 Skill：把 `SKILL.md` 放在 `~/.FutureWork/skills/<技能ID>/`，然后在目标好友 TOML 中显式写入：
 
@@ -304,7 +310,7 @@ skills = ["技能ID"]
 
 ### 内置能力、动态计划与用户画像
 
-包内 `src/futurework/abilities/` 统一存放六类内置资源：`tools/`、`skills/`、`mcp/`、`workflows/`、`friends/`、`teams/`。每个可用工具目录都有 `manifest.toml` 和真正执行的 `handler.py`，例如 `tools/read/handler.py` 读取工作区文件、`tools/grep/handler.py` 搜索内容、`tools/bash/handler.py` 执行受限命令、`tools/memory_search/handler.py` 执行分层记忆检索。网页抓取、网页转 Markdown、Skill 加载、计划更新/验收、定时任务创建/查询和用户画像追加也各有执行脚本；共享的路径约束与原子写入放在 `tools/common.py`，计划和定时任务持久化放在 `tools/management.py`、`tools/schedule.py`。`runtime/tool_dispatch.py` 只负责授权、参数边界和分发，清单本身不会绕过 Agent 授权。未实现的网页搜索占位工具已从内置工具目录移除。
+包内 `src/futurework/abilities/` 统一存放六类内置资源：`tools/`、`skills/`、`mcp/`、`workflows/`、`friends/`、`teams/`。每个可用工具目录都有 `manifest.toml` 和真正执行的 `handler.py`，例如 `tools/read/handler.py` 读取工作区文件、`tools/grep/handler.py` 搜索内容、`tools/bash/handler.py` 执行受限命令、`tools/memory_search/handler.py` 执行分层记忆检索。网页抓取、网页转 Markdown、Skill 加载、计划更新/验收、定时任务创建/查询和用户画像追加也各有执行脚本；共享的路径约束与原子写入放在 `tools/common.py`，计划和定时任务持久化放在 `tools/management.py`、`tools/schedule.py`。`runtime/tool_dispatch.py` 负责工具 schema 和处理器分发；模型调用统一经过工具执行层。未实现的网页搜索占位工具已从内置工具目录移除。
 
 初始化会把包内 `friends/`、`teams/` 中缺失的 TOML 复制到用户 `agents/`、`teams/`，包括小未、小T、小V和“多媒体群”。已有同名配置不会覆盖。小未默认加载 `dynamic_plan` Skill；复杂任务先用 `plan_update` 保存每步行动与验收标准，执行后用 `plan_check` 记录通过/失败和证据，条件改变时保留已验收步骤并重写后续步骤。计划按作用域和执行者存在 `data/plans/`；`plan_check` 记录模型或工具给出的证据，当前不自动运行用户任意验收脚本。旧版小未配置也会在运行时补入此 Skill 和计划、定时工具。
 
@@ -366,7 +372,7 @@ skills = ["技能ID"]
 | `GET /conversations`、`GET/POST /conversations/{id}/messages` | 列出会话、读取和发送消息。 |
 | `POST /groups` | 创建群聊。 |
 | `GET /inbox?view=recent|all|approvals` | 最近消息、全部消息、待审批视图。 |
-| `GET /approvals`、`POST /approvals/{id}/decision` | 查看并处理配置审批。 |
+| `GET /approvals`、`POST /approvals/{id}/decision` | 查看并处理配置变更与单次工具调用审批。 |
 | `GET /tasks/{id}` | 查看任务和步骤状态。 |
 | `GET /events` | 服务发送事件流，用于页面更新。 |
 

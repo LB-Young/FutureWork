@@ -1,16 +1,18 @@
 """Adapt user-owned TOML definitions into the runtime configuration snapshot."""
 
 from importlib.resources import files
+import errno
 from pathlib import Path
 import tomllib
 
 from futurework.config_store.loader import load_user_config
-from futurework.runtime.tool_dispatch import PUBLIC_TOOLS, SCHEMAS
+from futurework.runtime.tool_dispatch import PUBLIC_TOOLS, REPLAY_SAFE_TOOLS, SCHEMAS
 
 
 WEB_DIRECTORY = files("futurework").joinpath("web")
 DEFAULT_CONFIG = files("futurework").joinpath("defaults", "app.toml")
 DEFAULT_CONTEXT = files("futurework").joinpath("defaults", "context.toml")
+DEFAULT_TOOLS = files("futurework").joinpath("defaults", "tools.toml")
 
 
 def _merge(base: dict, override: dict) -> dict:
@@ -37,6 +39,29 @@ def load_config(home: Path) -> dict:
     config["models"] = raw["models"]
     config["home"] = home
     config["skill_policy"] = raw["settings"]["extensions"]["policy"]
+    with DEFAULT_TOOLS.open("rb") as source:
+        tool_defaults = tomllib.load(source)
+    config["tool_execution"] = _merge(tool_defaults["execution"], raw["settings"]["tools"].get("execution", {}))
+    policy = config["tool_execution"]
+    if any(type(policy[key]) is not int or policy[key] < 1 for key in ("max_attempts", "max_input_chars", "max_output_chars")):
+        raise ValueError("invalid tool execution integer limit")
+    if any(type(policy[key]) not in (int, float) or policy[key] <= 0 for key in
+           ("base_backoff_seconds", "max_backoff_seconds", "call_timeout_seconds", "approval_wait_seconds", "approval_poll_seconds")):
+        raise ValueError("invalid tool execution duration")
+    if policy["max_backoff_seconds"] < policy["base_backoff_seconds"]:
+        raise ValueError("tool execution max backoff must cover base backoff")
+    for key in ("require_approval_for", "retry_read_tools"):
+        if not isinstance(policy[key], list) or any(name not in SCHEMAS for name in policy[key]):
+            raise ValueError(f"invalid tool execution {key}")
+    if not set(policy["retry_read_tools"]).issubset(REPLAY_SAFE_TOOLS):
+        raise ValueError("tool retries are restricted to replay-safe built-ins")
+    if (not isinstance(policy["retry_http_statuses"], list)
+            or any(type(status) is not int or not 100 <= status <= 599 for status in policy["retry_http_statuses"])
+            or type(policy["retry_http_5xx"]) is not bool
+            or not isinstance(policy["retry_system_errors"], list)):
+        raise ValueError("invalid tool retry error classes")
+    if any(not isinstance(name, str) or not hasattr(errno, name) for name in policy["retry_system_errors"]):
+        raise ValueError("invalid tool retry system error name")
     with DEFAULT_CONTEXT.open("rb") as source:
         context_defaults = tomllib.load(source)
     config["memory"] = _merge(context_defaults["memory"], raw["settings"]["context"].get("memory", {}))

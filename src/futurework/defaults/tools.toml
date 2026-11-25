@@ -1,5 +1,17 @@
-# Tool risk classes and approval defaults. This is a schema placeholder.
+# Tool execution policy. Per-call approval differs from granting a tool in Agent TOML.
 schema_version = 1
 
-[policy]
-default = "deny"
+[execution]
+max_attempts = 2
+base_backoff_seconds = 0.25
+max_backoff_seconds = 2.0
+call_timeout_seconds = 30.0
+approval_wait_seconds = 300.0
+approval_poll_seconds = 0.5
+max_input_chars = 12000
+max_output_chars = 12000
+require_approval_for = ["write", "edit", "bash", "url_to_md", "schedule_create"]
+retry_read_tools = ["read", "read_file", "glob", "glob_files", "grep", "grep_files", "memory_search", "skill_load", "web_fetch", "schedule_list"]
+retry_http_statuses = [408, 429]
+retry_http_5xx = true
+retry_system_errors = ["EAGAIN", "EBUSY", "ETIMEDOUT", "ECONNRESET", "ECONNABORTED", "ENETUNREACH"]

@@ -68,6 +68,8 @@
 
 **当前检索与压缩：** `MemoryRetriever` 的 `memory_search` 先查当前人物的经验 Markdown，群成员继而查当前群索引和其他成员经验，未命中才查当前作用域的 JSONL。小未可显式指定已有群 ID；好友私聊不能跨作用域。`ContextCompactor` 对完整模型请求作保守 Token 估算，以模型别名的窗口和输出上限或 `[compaction]` 默认值决定触发；旧消息只选择不会拆散工具调用与结果的前缀，最近消息保持原样。模型摘要失败时使用有界摘录，摘要只参与本次请求，原始 SQLite/JSONL 不改写；每次有收益的压缩追加到当前作用域的 `compactions.jsonl`，保留源消息 ID 与原文哈希。当前不是精确 tokenizer，跨请求尚未复用已有压缩摘要。
 
+**当前工具执行层：** `AgentRuntime` 把模型请求的每次工具调用封装为 `ToolCall`，交给 `ToolExecutionLayer`。该层按固定的 Agent/Scope、授权快照和 schema 验证参数，按 `tools.toml [execution]` 判断单次调用审批，必要时在现有审批列表创建带完整参数的请求并等待用户决定。审批通过后再查一次当前 Agent 授权，然后调用 `ToolRegistry` 分发到 `abilities/tools/<name>/handler.py`。输出按文本或结构化 JSON 校验并限制长度；临时 HTTP/网络/系统故障按 Bamboo 的分类只对可重放读工具在预算内重试，写类操作不自动重放。作用域内 `tool_calls.jsonl` 记录决策、哈希、尝试类别和结果；审批超时或进程退出不会自动恢复悬置的模型调用。
+
 ### 2.3 目标源码模块树（逻辑视图）
 
 ```text
@@ -169,7 +171,9 @@ FutureWork/
 │   │   ├── agent_executor.py        # 三种 Runtime 共用的单 Agent 推理/工具循环
 │   │   ├── run_spec.py              # 配置版本、上下文作用域、任务和预算快照
 │   │   ├── checkpoints.py           # 运行状态持久化、恢复和取消
-│   │   └── tool_dispatch.py         # 工具授权、审批与调用入口
+│   │   ├── tool_dispatch.py         # 模型可见 schema 与内置处理器分发
+│   │   ├── tool_execution.py        # 入参出参校验、授权、审批、失败分类与安全重试
+│   │   └── tool_approvals.py        # 单次工具调用审批持久化与等待决策
 │   ├── extension_system/
 │   │   ├── registry.py              # 内置与已安装扩展的统一索引、版本固定
 │   │   ├── installer.py             # 下载/导入、校验、暂存、原子安装与回滚
