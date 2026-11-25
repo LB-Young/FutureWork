@@ -40,11 +40,20 @@ def load_config(home: Path) -> dict:
     with DEFAULT_CONTEXT.open("rb") as source:
         context_defaults = tomllib.load(source)
     config["memory"] = _merge(context_defaults["memory"], raw["settings"]["context"].get("memory", {}))
+    config["compaction"] = _merge(context_defaults["compaction"], raw["settings"]["context"].get("compaction", {}))
     if type(config["memory"]["search_enabled"]) is not bool:
         raise ValueError("context.toml memory.search_enabled must be a boolean")
     if any(type(value) is not int or value <= 0
            for key, value in config["memory"].items() if key != "search_enabled"):
         raise ValueError("context.toml [memory] values must be positive integers")
+    compact = config["compaction"]
+    if type(compact["enabled"]) is not bool or not 0 < compact["trigger_ratio"] <= 1:
+        raise ValueError("invalid context.toml [compaction] switch or ratio")
+    if any(type(value) is not int or value <= 0 for key, value in compact.items()
+           if key not in {"enabled", "trigger_ratio"}):
+        raise ValueError("context.toml [compaction] token and size limits must be positive integers")
+    if compact["preserve_head_chars"] + compact["preserve_tail_chars"] >= compact["max_inline_message_chars"]:
+        raise ValueError("compaction inline message limit must exceed preserved head and tail")
     config["agent_extensions"] = {agent_id: item.get("extensions", {}) for agent_id, item in raw["agents"].items()}
     config["model"]["available_models"] = list(raw["models"]["models"])
     if config["model"]["default_model"] not in config["model"]["available_models"]:

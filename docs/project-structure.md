@@ -1,6 +1,6 @@
 # FutureWork 工程目录设计
 
-状态：目标架构与首个可运行版本。当前开发分支已接通用户目录配置、SQLite 消息和任务、多平台文本模型网关、小未分派、Agent 私聊、两种群聊模式、显式启用的 Skill 文本加载，以及计算、工作区文件操作、公共网页抓取和受限命令执行等通用工具。浏览器自动化、BKN、LSP、Workflow、MCP 与完整记忆检索仍属于后续阶段。此前的实验性实现保留在 `feat/user-home-package` 分支供参考。
+状态：目标架构与首个可运行版本。当前开发分支已接通用户目录配置、SQLite 消息和任务、多平台文本模型网关、小未分派、Agent 私聊、两种群聊模式、显式启用的 Skill 文本加载、分层记忆检索、长上下文压缩，以及计算、工作区文件操作、公共网页抓取和受限命令执行等通用工具。浏览器自动化、BKN、LSP、Workflow、MCP 仍属于后续阶段。此前的实验性实现保留在 `feat/user-home-package` 分支供参考。
 
 参考 Bamboo 后，当前对话执行入口先将请求转换为 `RunParams`，再由纯对象工厂创建类型化 `Task`，由 `TaskRuntime` 分流执行；具体 Agent 执行会把数据库/TOML 记录转换为 `AgentRun` 对象。模型网关使用 `ModelRequest` 与 `ModelResult`，工具调度使用 `ToolRequest` 与 `ToolResult`。这些对象跨运行层传递，配置文件和 HTTP/SQLite 边界仍用原生映射。新用户目录预置 DeepSeek、Kimi、MiniMax、MiMo、GPT、Claude、阿里云千问、智谱、OpenRouter、Ollama、vLLM，以及 Bamboo 风格公司 HTTP 代理的文本模型别名。图像/视频模型、其他任意自定义 HTTP 协议及 Bamboo 的其他默认工具尚未实现，不能仅凭配置项认为可用。
 
@@ -61,6 +61,8 @@
 **当前文件记忆实现：** `contexts/types.py` 定义 `ScopeKey`，`contexts/store.py` 将 SQLite 已提交的消息按小未、好友、群聊分别写入 `messages.jsonl`。文件记录保留原文、发送者、时间、消息 ID 及任务/审批关联；数据库仍是页面消息和状态的主数据源。每次数据库事务提交后同步新增消息；启动时从数据库重放并按消息 ID 去重，补齐中断时未写入的文件。自动 Markdown 经验由 `ExperienceSummarizer` 从回复中提取有限行，附源消息 ID；好友和小未写入各自的 `experiences.md`，群聊按用户话题和发言人写入 `topics/<topic>/<person_id>.md`，`topics/<topic>/index.md` 汇总该话题参与者，`overview.md` 索引所有话题。原始 JSONL 不截断，Markdown 提取长度与提示词经验预算由 `context.toml [memory]` 控制。当前摘录不是模型深度反思，也不具备跨话题语义归并。
 
 `agents/assistant.md`、`agents/<agent_id>.md`、`teams/<team_id>.md` 是可人工维护的长期介绍。仅缺失时从 TOML 生成，不覆盖已有 Markdown。小未的个人对话和群中控都会加载所有人物、群聊介绍全文，供模型理解团队背景；当前自动分派排名仍由 `TaskPlanner` 的能力分值规则决定。个人对话只加载小未的私聊经验，群中控只加载当前群经验。好友私聊只加载该好友介绍与经验；群成员加载自己的介绍、当前群介绍和群经验，不加载其私聊经验。这是当前提示词可见性规则；后续更细的分享、检索、压缩、删除和多进程写入协调仍按目标架构扩展。
+
+**当前检索与压缩：** `MemoryRetriever` 的 `memory_search` 先查当前人物的经验 Markdown，群成员继而查当前群索引和其他成员经验，未命中才查当前作用域的 JSONL。小未可显式指定已有群 ID；好友私聊不能跨作用域。`ContextCompactor` 对完整模型请求作保守 Token 估算，以模型别名的窗口和输出上限或 `[compaction]` 默认值决定触发；旧消息只选择不会拆散工具调用与结果的前缀，最近消息保持原样。模型摘要失败时使用有界摘录，摘要只参与本次请求，原始 SQLite/JSONL 不改写；每次有收益的压缩追加到当前作用域的 `compactions.jsonl`，保留源消息 ID 与原文哈希。当前不是精确 tokenizer，跨请求尚未复用已有压缩摘要。
 
 ### 2.3 目标源码模块树（逻辑视图）
 
@@ -147,6 +149,7 @@ FutureWork/
 │   │   ├── task_context.py          # 单次任务的临时输入和产物
 │   │   ├── assembler.py             # 按权限组装模型上下文
 │   │   ├── summarizer.py            # 增量摘要、回溯来源
+│   │   ├── compactor.py             # 按模型窗口压缩旧消息并保留作用域审计记录
 │   │   ├── retrieval.py             # 按作用域检索；不得跨域默认搜索
 │   │   └── policy.py                # 显式分享、保留与删除规则
 │   ├── runtime/

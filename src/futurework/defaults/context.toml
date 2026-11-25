@@ -19,3 +19,17 @@ search_max_file_chars = 200000
 search_max_result_chars = 6000
 search_min_score = 2
 search_max_log_lines = 50000
+
+[compaction]
+enabled = true
+default_context_window = 64000
+output_reserve_tokens = 4096
+trigger_ratio = 0.65
+minimum_remaining_tokens = 8192
+preserve_recent_messages = 4
+max_passes = 2
+max_source_chars = 30000
+max_summary_chars = 6000
+max_inline_message_chars = 5000
+preserve_head_chars = 3000
+preserve_tail_chars = 1000

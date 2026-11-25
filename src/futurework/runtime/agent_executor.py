@@ -4,6 +4,7 @@ import json
 
 from futurework.extension_system.skill_loader import load_skills
 from futurework.contexts.store import MemoryStore
+from futurework.contexts.compactor import ContextCompactor
 from futurework.contexts.types import ScopeKey
 from futurework.integrations.model_gateway.gateway import ModelGateway
 from futurework.integrations.model_gateway.types import ModelRequest
@@ -20,6 +21,7 @@ class AgentRuntime:
         self.model_gateway = model_gateway or ModelGateway(config)
         self.memory_store = memory_store or MemoryStore(config["home"], config["memory"], config["ui"]["assistant_name"])
         self.memory_store.ensure_profiles()
+        self.compactor = ContextCompactor(config, self.model_gateway, self.memory_store)
 
     async def respond(self, agent: dict, history: list[dict], scope: ScopeKey | None = None) -> str:
         """Convert persistence records into a scoped execution object."""
@@ -40,13 +42,17 @@ class AgentRuntime:
             system += f"\n以下 Skill 只提供方法说明，不授予工具或数据权限：\n{instructions}"
         messages = [{"role": "system", "content": system}]
         messages.extend({"role": "user" if item["from"] == "me" else "assistant",
+                         "source_id": str(item.get("id", "")),
                          "content": f"{item.get('speaker', run.name)}：{item['text']}" if item["from"] != "me" else item["text"]}
                         for item in run.history)
         tools_for_run = ToolRegistry(run.agent_id, run.tools, self.config,
                                      scope=run.scope, memory_store=self.memory_store)
         tools = tools_for_run.schemas() if self.model_gateway.supports_tools(run.model_alias) else []
         for _ in range(self.config["tool_runtime"]["max_rounds"] + 1):
-            result = await self.model_gateway.generate(ModelRequest(alias=run.model_alias, messages=messages, tools=tools))
+            compacted = await self.compactor.compact(ModelRequest(run.model_alias, messages, tools), run.scope, run.agent_id)
+            messages = compacted.messages
+            provider_messages = [{key: value for key, value in item.items() if key != "source_id"} for item in messages]
+            result = await self.model_gateway.generate(ModelRequest(alias=run.model_alias, messages=provider_messages, tools=tools))
             if not result.tool_calls:
                 return result.text
             if not tools or len(result.tool_calls) > self.config["tool_runtime"]["max_calls_per_round"]:
