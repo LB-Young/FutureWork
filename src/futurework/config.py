@@ -40,8 +40,10 @@ def load_config(home: Path) -> dict:
     with DEFAULT_CONTEXT.open("rb") as source:
         context_defaults = tomllib.load(source)
     config["memory"] = _merge(context_defaults["memory"], raw["settings"]["context"].get("memory", {}))
-    if any(not isinstance(value, int) or isinstance(value, bool) or value <= 0
-           for value in config["memory"].values()):
+    if type(config["memory"]["search_enabled"]) is not bool:
+        raise ValueError("context.toml memory.search_enabled must be a boolean")
+    if any(type(value) is not int or value <= 0
+           for key, value in config["memory"].items() if key != "search_enabled"):
         raise ValueError("context.toml [memory] values must be positive integers")
     config["agent_extensions"] = {agent_id: item.get("extensions", {}) for agent_id, item in raw["agents"].items()}
     config["model"]["available_models"] = list(raw["models"]["models"])

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import asyncio
+import json
 from html.parser import HTMLParser
 import ipaddress
 from itertools import islice
@@ -20,6 +21,9 @@ from typing import Any
 import httpx
 
 from futurework.extension_system.skill_loader import load_skills
+from futurework.contexts.retrieval import MemoryRetriever
+from futurework.contexts.store import MemoryStore
+from futurework.contexts.types import ScopeKey
 
 
 SCHEMAS = {
@@ -45,6 +49,9 @@ SCHEMAS = {
               "edits": {"type": "array", "items": {"type": "object"}}}, ["file_path"]),
     "skill_load": ("Load an enabled Skill's full instructions.",
                    {"name": {"type": "string"}}, ["name"]),
+    "memory_search": ("Search scoped experience first, then raw messages if no experience matches.",
+                      {"query": {"type": "string"}, "limit": {"type": "integer"},
+                       "group_id": {"type": "string"}}, ["query"]),
     "web_fetch": ("Fetch public web page text.",
                   {"url": {"type": "string"}, "max_length": {"type": "integer"}}, ["url"]),
     "url_to_md": ("Fetch a public page and save readable Markdown in the workspace.",
@@ -55,7 +62,7 @@ SCHEMAS = {
               "timeout": {"type": "integer"}}, ["command"]),
 }
 
-PUBLIC_TOOLS = tuple(name for name in SCHEMAS if name not in {"read_file", "glob_files", "grep_files"})
+PUBLIC_TOOLS = tuple(name for name in SCHEMAS if name not in {"read_file", "glob_files", "grep_files", "memory_search"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -209,9 +216,12 @@ async def _drain(reader: asyncio.StreamReader, limit: int) -> bytes:
 class ToolRegistry:
     """Own the schemas, grants, and execution policy for one Agent run."""
 
-    def __init__(self, agent_id: str, grants: tuple[str, ...] | list[str], config: dict) -> None:
+    def __init__(self, agent_id: str, grants: tuple[str, ...] | list[str], config: dict,
+                 scope: ScopeKey | None = None, memory_store: MemoryStore | None = None) -> None:
         self.agent_id = agent_id
-        self.grants = tuple(grants)
+        self.scope = scope
+        self.memory_retriever = MemoryRetriever(memory_store) if scope and memory_store and config["memory"]["search_enabled"] else None
+        self.grants = tuple(dict.fromkeys((*grants, "memory_search"))) if self.memory_retriever else tuple(grants)
         self.config = config
 
     def schemas(self) -> list[dict]:
@@ -332,6 +342,28 @@ class ToolRegistry:
     async def execute(self, name: str, arguments: dict[str, Any]) -> ToolResult:
         """Run a permitted tool using this Agent's fixed grants and config."""
         request = ToolRequest(self.agent_id, name, arguments)
+        if name == "memory_search":
+            if name not in self.grants:
+                return ToolResult("tool is not granted", False)
+            if self.memory_retriever is None or self.scope is None:
+                return ToolResult("memory search is unavailable for this run", False)
+            if not isinstance(arguments, dict):
+                return ToolResult("invalid tool arguments", False)
+            try:
+                found = self.memory_retriever.search(
+                    arguments["query"], self.scope, self.agent_id,
+                    group_id=arguments.get("group_id"), limit=arguments.get("limit", 5))
+                result = found.as_dict()
+                cap = self.config["memory"]["search_max_result_chars"]
+                for match in result["matches"]:
+                    match["content"] = match["content"][:max(1, cap // max(1, len(result["matches"])) - 300)]
+                while len(json.dumps(result, ensure_ascii=False)) > cap and result["matches"]:
+                    result["matches"].pop()
+                if len(json.dumps(result, ensure_ascii=False)) > cap:
+                    return ToolResult("memory search result exceeds configured limit", False)
+                return ToolResult(json.dumps(result, ensure_ascii=False))
+            except (ValueError, KeyError, TypeError, PermissionError, OSError) as error:
+                return ToolResult(f"memory search failed: {type(error).__name__}", False)
         if request.name not in {"web_fetch", "url_to_md", "bash"}:
             return self.execute_sync(request)
         if request.name not in self.grants:

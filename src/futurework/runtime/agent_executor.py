@@ -42,7 +42,8 @@ class AgentRuntime:
         messages.extend({"role": "user" if item["from"] == "me" else "assistant",
                          "content": f"{item.get('speaker', run.name)}：{item['text']}" if item["from"] != "me" else item["text"]}
                         for item in run.history)
-        tools_for_run = ToolRegistry(run.agent_id, run.tools, self.config)
+        tools_for_run = ToolRegistry(run.agent_id, run.tools, self.config,
+                                     scope=run.scope, memory_store=self.memory_store)
         tools = tools_for_run.schemas() if self.model_gateway.supports_tools(run.model_alias) else []
         for _ in range(self.config["tool_runtime"]["max_rounds"] + 1):
             result = await self.model_gateway.generate(ModelRequest(alias=run.model_alias, messages=messages, tools=tools))
