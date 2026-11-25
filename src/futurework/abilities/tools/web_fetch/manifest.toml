@@ -3,5 +3,5 @@ schema_version = 1
 id = "web_fetch"
 version = "0.1.0"
 kind = "tool"
-executor = "futurework.runtime.tool_dispatch.ToolRegistry"
+executor = "futurework.abilities.tools.web_fetch.handler:run"
 enabled = true

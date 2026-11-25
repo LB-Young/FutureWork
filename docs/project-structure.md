@@ -105,7 +105,7 @@ FutureWork/
 │   │   │   ├── calculator/
 │   │   │   │   ├── manifest.toml    # ID、版本、参数 schema、风险和入口
 │   │   │   │   └── handler.py       # Python 工具实现
-│   │   │   └── web_search/          # 受控搜索接口；凭证来自密钥管理层
+│   │   │   └── web_fetch/           # 经过地址检查的公共网页抓取
 │   │   ├── skills/
 │   │   │   └── research-brief/
 │   │   │       ├── manifest.toml    # 依赖、适用 Runtime、输入和资源声明
@@ -259,7 +259,7 @@ temperature = 0.4                   # 覆盖全局默认值；可省略
 "analysis.summary" = 0.80
 
 [permissions]
-tools = ["abilities/web_search@1.0.0"]
+tools = ["abilities/web_fetch@1.0.0"]
 approval_policy = "standard"       # 引用 tools.toml 中的策略
 data_scopes = ["user_shared_files"]
 

@@ -3,5 +3,5 @@ schema_version = 1
 id = "grep"
 version = "0.1.0"
 kind = "tool"
-executor = "futurework.runtime.tool_dispatch.ToolRegistry"
+executor = "futurework.abilities.tools.grep.handler:run"
 enabled = true

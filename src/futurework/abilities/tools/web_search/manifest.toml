@@ -1,6 +1,0 @@
-# Web search manifest; no external connector is active in this scaffold.
-schema_version = 1
-id = "web_search"
-version = "0.1.0"
-kind = "tool"
-enabled = false

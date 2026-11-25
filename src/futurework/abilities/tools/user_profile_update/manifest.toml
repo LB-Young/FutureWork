@@ -3,5 +3,5 @@ schema_version = 1
 id = "user_profile_update"
 version = "0.1.0"
 kind = "tool"
-executor = "futurework.runtime.tool_dispatch.ToolRegistry"
+executor = "futurework.abilities.tools.user_profile_update.handler:run"
 enabled = true

@@ -304,7 +304,7 @@ skills = ["技能ID"]
 
 ### 内置能力、动态计划与用户画像
 
-包内 `src/futurework/abilities/` 统一存放六类内置资源：`tools/`、`skills/`、`mcp/`、`workflows/`、`friends/`、`teams/`。工具清单包含文件名搜索 `glob`、内容搜索 `grep`、读取 `read`、编辑 `edit`、命令 `bash`、经验检索 `memory_search`、加载 Skill `skill_load`、网页转 Markdown `url_to_md`、计划更新/验收、定时任务创建/查询、用户画像追加等。真正执行工具的是 `ToolRegistry`，清单本身不会绕过 Agent 授权；`memory_search` 和 `user_profile_update` 是作用域绑定的只读检索/受限画像工具。网页搜索占位清单没有可用执行器。
+包内 `src/futurework/abilities/` 统一存放六类内置资源：`tools/`、`skills/`、`mcp/`、`workflows/`、`friends/`、`teams/`。每个可用工具目录都有 `manifest.toml` 和真正执行的 `handler.py`，例如 `tools/read/handler.py` 读取工作区文件、`tools/grep/handler.py` 搜索内容、`tools/bash/handler.py` 执行受限命令、`tools/memory_search/handler.py` 执行分层记忆检索。网页抓取、网页转 Markdown、Skill 加载、计划更新/验收、定时任务创建/查询和用户画像追加也各有执行脚本；共享的路径约束与原子写入放在 `tools/common.py`，计划和定时任务持久化放在 `tools/management.py`、`tools/schedule.py`。`runtime/tool_dispatch.py` 只负责授权、参数边界和分发，清单本身不会绕过 Agent 授权。未实现的网页搜索占位工具已从内置工具目录移除。
 
 初始化会把包内 `friends/`、`teams/` 中缺失的 TOML 复制到用户 `agents/`、`teams/`，包括小未、小T、小V和“多媒体群”。已有同名配置不会覆盖。小未默认加载 `dynamic_plan` Skill；复杂任务先用 `plan_update` 保存每步行动与验收标准，执行后用 `plan_check` 记录通过/失败和证据，条件改变时保留已验收步骤并重写后续步骤。计划按作用域和执行者存在 `data/plans/`；`plan_check` 记录模型或工具给出的证据，当前不自动运行用户任意验收脚本。旧版小未配置也会在运行时补入此 Skill 和计划、定时工具。
 

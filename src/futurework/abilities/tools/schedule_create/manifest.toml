@@ -3,5 +3,5 @@ schema_version = 1
 id = "schedule_create"
 version = "0.1.0"
 kind = "tool"
-executor = "futurework.runtime.tool_dispatch.ToolRegistry"
+executor = "futurework.abilities.tools.schedule_create.handler:run"
 enabled = true

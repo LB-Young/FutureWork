@@ -1,28 +1,29 @@
-"""Expose a small Bamboo-inspired built-in tool set with per-Agent grants."""
+"""Authorize tool calls and dispatch them to per-tool ability handlers."""
 
 from __future__ import annotations
 
-import ast
-import asyncio
-import json
-from html.parser import HTMLParser
-import ipaddress
-from itertools import islice
-import os
-import operator
 import re
-import socket
-import tempfile
-from urllib.parse import urljoin, urlsplit
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 import httpx
 
-from futurework.abilities.tools.management import DynamicPlan, UserProfile
-from futurework.abilities.tools.schedule import ScheduleStore
-from futurework.extension_system.skill_loader import load_skills
+from futurework.abilities.tools.bash import handler as bash_handler
+from futurework.abilities.tools.calculator import handler as calculator_handler
+from futurework.abilities.tools.edit import handler as edit_handler
+from futurework.abilities.tools.glob import handler as glob_handler
+from futurework.abilities.tools.grep import handler as grep_handler
+from futurework.abilities.tools.memory_search import handler as memory_handler
+from futurework.abilities.tools.plan_check import handler as plan_check_handler
+from futurework.abilities.tools.plan_update import handler as plan_update_handler
+from futurework.abilities.tools.read import handler as read_handler
+from futurework.abilities.tools.schedule_create import handler as schedule_create_handler
+from futurework.abilities.tools.schedule_list import handler as schedule_list_handler
+from futurework.abilities.tools.skill_load import handler as skill_handler
+from futurework.abilities.tools.url_to_md import handler as url_to_md_handler
+from futurework.abilities.tools.user_profile_update import handler as profile_handler
+from futurework.abilities.tools.web_fetch import handler as web_fetch_handler
+from futurework.abilities.tools.write import handler as write_handler
 from futurework.contexts.retrieval import MemoryRetriever
 from futurework.contexts.store import MemoryStore
 from futurework.contexts.types import ScopeKey
@@ -103,132 +104,8 @@ def schemas_for(grants: list[str] | tuple[str, ...]) -> list[dict]:
                            "additionalProperties": False}}} for name in grants if name in SCHEMAS]
 
 
-def _workspace(config: dict) -> Path:
-    raw = Path(config["tool_runtime"]["workspace"])
-    return (raw if raw.is_absolute() else config["home"] / raw).resolve()
-
-
-def _path(root: Path, name: str) -> Path:
-    path = (root / name).resolve()
-    if not path.is_relative_to(root):
-        raise ValueError("path escapes the configured workspace")
-    return path
-
-
-_OPS = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
-        ast.Div: operator.truediv, ast.FloorDiv: operator.floordiv, ast.Mod: operator.mod,
-        ast.Pow: operator.pow, ast.USub: operator.neg, ast.UAdd: operator.pos}
-
-
-def _calculate(node: ast.AST) -> int | float:
-    if isinstance(node, ast.Constant) and type(node.value) in (int, float):
-        return node.value
-    if isinstance(node, ast.BinOp) and type(node.op) in _OPS:
-        left, right = _calculate(node.left), _calculate(node.right)
-        if abs(left) > 1e12 or abs(right) > 1e12 or isinstance(node.op, ast.Pow) and abs(right) > 10:
-            raise ValueError("calculation exceeds limit")
-        return _OPS[type(node.op)](left, right)
-    if isinstance(node, ast.UnaryOp) and type(node.op) in _OPS:
-        return _OPS[type(node.op)](_calculate(node.operand))
-    raise ValueError("unsupported expression")
-
-
-def _replace_file(path: Path, content: str) -> None:
-    """Write a workspace file atomically so interrupted edits keep old content."""
-    descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
-    try:
-        with os.fdopen(descriptor, "w", encoding="utf-8") as output:
-            output.write(content)
-            output.flush()
-            os.fsync(output.fileno())
-        os.replace(temporary, path)
-    finally:
-        if os.path.exists(temporary):
-            os.unlink(temporary)
-
-
-class _PageText(HTMLParser):
-    """Extract visible text without script or style blocks."""
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.parts: list[str] = []
-        self.skip = 0
-
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        if tag in {"script", "style", "noscript"}:
-            self.skip += 1
-        elif tag in {"p", "h1", "h2", "h3", "li", "br"}:
-            self.parts.append("\n")
-
-    def handle_endtag(self, tag: str) -> None:
-        if tag in {"script", "style", "noscript"} and self.skip:
-            self.skip -= 1
-        elif tag in {"p", "h1", "h2", "h3", "li"}:
-            self.parts.append("\n")
-
-    def handle_data(self, data: str) -> None:
-        if not self.skip:
-            self.parts.append(data)
-
-
-async def _public_url(url: str) -> bool:
-    """Reject local/private hosts and DNS results before an outbound fetch."""
-    try:
-        parts = urlsplit(url)
-        if parts.scheme not in {"http", "https"} or not parts.hostname or parts.username or parts.password:
-            return False
-        addresses = await asyncio.to_thread(socket.getaddrinfo, parts.hostname, parts.port or (443 if parts.scheme == "https" else 80))
-        return bool(addresses) and all(ipaddress.ip_address(item[4][0]).is_global for item in addresses)
-    except (ValueError, OSError):
-        return False
-
-
-async def _fetch_public(url: str, config: dict) -> str:
-    """Fetch a bounded public page and recheck every redirect destination."""
-    maximum = config["tool_runtime"]["max_web_bytes"]
-    async with httpx.AsyncClient(timeout=config["tool_runtime"]["web_timeout_seconds"], follow_redirects=False) as client:
-        for _ in range(config["tool_runtime"]["max_web_redirects"] + 1):
-            if not await _public_url(url):
-                raise ValueError("URL is not a public HTTP(S) address")
-            async with client.stream("GET", url, headers={"User-Agent": config["tool_runtime"]["web_user_agent"]}) as response:
-                if response.is_redirect:
-                    location = response.headers.get("location")
-                    if not location:
-                        raise ValueError("redirect has no location")
-                    url = urljoin(url, location)
-                    continue
-                response.raise_for_status()
-                chunks = []
-                size = 0
-                async for chunk in response.aiter_bytes():
-                    size += len(chunk)
-                    if size > maximum:
-                        raise ValueError("web response exceeds limit")
-                    chunks.append(chunk)
-                raw = b"".join(chunks).decode("utf-8", errors="replace")
-                if "html" in response.headers.get("content-type", "").lower() or "<html" in raw[:500].lower():
-                    parser = _PageText()
-                    parser.feed(raw)
-                    return re.sub(r"\n{3,}", "\n\n", "".join(parser.parts)).strip()
-                return raw.strip()
-        raise ValueError("too many redirects")
-
-
-async def _drain(reader: asyncio.StreamReader, limit: int) -> bytes:
-    """Drain process output while retaining at most the configured byte limit."""
-    parts = []
-    kept = 0
-    while chunk := await reader.read(4096):
-        if kept < limit:
-            part = chunk[:limit - kept]
-            parts.append(part)
-            kept += len(part)
-    return b"".join(parts)
-
-
 class ToolRegistry:
-    """Own the schemas, grants, and execution policy for one Agent run."""
+    """Authorize one run's tools and dispatch into their real ability handlers."""
 
     def __init__(self, agent_id: str, grants: tuple[str, ...] | list[str], config: dict,
                  scope: ScopeKey | None = None, memory_store: MemoryStore | None = None) -> None:
@@ -242,211 +119,81 @@ class ToolRegistry:
         self.config = config
 
     def schemas(self) -> list[dict]:
-        """Expose only implemented tools granted to this Agent."""
+        """Expose only the tool schemas granted to this Agent."""
         return schemas_for(self.grants)
 
-    def execute_sync(self, request: ToolRequest) -> ToolResult:
-        """Recheck grants and keep filesystem reads inside the workspace."""
+    def _authorized(self, request: ToolRequest) -> ToolResult | None:
+        """Reject unrecognized, cross-Agent or ungranted tool calls."""
         if request.agent_id != self.agent_id:
             return ToolResult("tool belongs to another Agent", False)
         if request.name not in SCHEMAS or request.name not in self.grants:
             return ToolResult("tool is not granted", False)
-        args = request.arguments
-        if not isinstance(args, dict):
+        if not isinstance(request.arguments, dict):
             return ToolResult("invalid tool arguments", False)
-        name = {"read": "read_file", "glob": "glob_files", "grep": "grep_files"}.get(request.name, request.name)
-        if name == "read_file" and request.name == "read":
-            args = {**args, "path": args.get("file_path")}
-        if name in {"glob_files", "grep_files"} and request.name in {"glob", "grep"}:
-            args = {**args, "path": args.get("path", ".")}
+        return None
+
+    def execute_sync(self, request: ToolRequest) -> ToolResult:
+        """Call a synchronous built-in handler after grant and argument checks."""
+        denied = self._authorized(request)
+        if denied:
+            return denied
+        name = {"read_file": "read", "glob_files": "glob", "grep_files": "grep"}.get(request.name, request.name)
+        args = dict(request.arguments)
+        if name == "read" and request.name == "read":
+            args["path"] = args.get("file_path")
         limit = self.config["tool_runtime"]["max_result_chars"]
-        root = _workspace(self.config)
         try:
             if name == "calculator":
-                expression = args["expression"]
-                if not isinstance(expression, str) or len(expression) > self.config["tool_runtime"]["max_expression_chars"]:
-                    raise ValueError("invalid expression")
-                content = str(_calculate(ast.parse(expression, mode="eval").body))
-            elif name == "read_file":
-                path = _path(root, args["path"])
-                if not path.is_file() or path.stat().st_size > self.config["tool_runtime"]["max_file_bytes"]:
-                    raise ValueError("file unavailable or too large")
-                offset = max(0, int(args.get("offset", 0)))
-                line_limit = max(1, min(int(args.get("limit", 100)), self.config["tool_runtime"]["max_lines"]))
-                content = "\n".join(path.read_text(encoding="utf-8").splitlines()[offset:offset + line_limit])
-            elif name == "glob_files":
-                pattern = args["pattern"]
-                if not isinstance(pattern, str) or len(pattern) > self.config["tool_runtime"]["max_pattern_chars"] or ".." in Path(pattern).parts or Path(pattern).is_absolute():
-                    raise ValueError("invalid glob")
-                search_root = _path(root, args.get("path", "."))
-                matches = (path for path in islice(search_root.glob(pattern), self.config["tool_runtime"]["max_scanned_files"])
-                           if path.is_file() and path.resolve().is_relative_to(root))
-                max_matches = min(int(args.get("limit", self.config["tool_runtime"]["max_matches"])), self.config["tool_runtime"]["max_matches"])
-                content = "\n".join(str(path.relative_to(root)) for path in islice(matches, max(1, max_matches)))
-            elif name == "grep_files":
-                if not isinstance(args["pattern"], str) or len(args["pattern"]) > self.config["tool_runtime"]["max_pattern_chars"]:
-                    raise ValueError("invalid pattern")
-                pattern = re.compile(args["pattern"])
-                glob = args.get("glob", "**/*")
-                if not isinstance(glob, str) or len(glob) > self.config["tool_runtime"]["max_pattern_chars"] or ".." in Path(glob).parts or Path(glob).is_absolute():
-                    raise ValueError("invalid glob")
-                matches = []
-                search_root = _path(root, args.get("path", "."))
-                max_matches = min(int(args.get("limit", self.config["tool_runtime"]["max_matches"])), self.config["tool_runtime"]["max_matches"])
-                context_lines = min(max(0, int(args.get("context", 0))), self.config["tool_runtime"]["max_context_lines"])
-                for path in islice(search_root.glob(glob), self.config["tool_runtime"]["max_scanned_files"]):
-                    if not path.is_file() or not path.resolve().is_relative_to(root) or path.stat().st_size > self.config["tool_runtime"]["max_file_bytes"]:
-                        continue
-                    try:
-                        lines = path.read_text(encoding="utf-8").splitlines()
-                        for line_no, line in enumerate(lines, 1):
-                            if pattern.search(line):
-                                start = max(0, line_no - 1 - context_lines)
-                                end = min(len(lines), line_no + context_lines)
-                                snippet = "\n".join(f"{index + 1}: {lines[index]}" for index in range(start, end))
-                                matches.append(f"{path.relative_to(root)}:{line_no}\n{snippet}")
-                            if len(matches) >= max_matches:
-                                break
-                    except (OSError, UnicodeError):
-                        continue
-                    if len(matches) >= max_matches:
-                        break
-                content = "\n".join(matches)
-            elif name == "write":
-                content = args["content"]
-                if not isinstance(content, str) or len(content.encode("utf-8")) > self.config["tool_runtime"]["max_file_bytes"]:
-                    raise ValueError("content exceeds file limit")
-                path = _path(root, args["file_path"])
-                path.parent.mkdir(parents=True, exist_ok=True)
-                _replace_file(path, content)
-                content = f"Wrote {path.relative_to(root)}"
-            elif name == "edit":
-                path = _path(root, args["file_path"])
-                if not path.is_file() or path.stat().st_size > self.config["tool_runtime"]["max_file_bytes"]:
-                    raise ValueError("file unavailable or too large")
-                original = path.read_text(encoding="utf-8")
-                mode = args.get("mode", "replace")
-                if mode == "replace":
-                    old, new = args["old_string"], args.get("new_string", "")
-                    if not isinstance(old, str) or not old or not isinstance(new, str) or old not in original:
-                        raise ValueError("old_string must match existing text")
-                    updated = original.replace(old, new, 1)
-                elif mode == "multi_replace":
-                    edits = args["edits"]
-                    if not isinstance(edits, list) or not edits or any(not isinstance(item, dict) or not item.get("old") or original.count(item["old"]) != 1 for item in edits):
-                        raise ValueError("each old string must match exactly once")
-                    updated = original
-                    for item in edits:
-                        updated = updated.replace(item["old"], item.get("new", ""), 1)
-                else:
-                    raise ValueError("unsupported edit mode")
-                if len(updated.encode("utf-8")) > self.config["tool_runtime"]["max_file_bytes"]:
-                    raise ValueError("edited file exceeds limit")
-                _replace_file(path, updated)
-                content = f"Edited {path.relative_to(root)}"
+                content = calculator_handler.run(args, self.config)
+            elif name in {"read", "glob", "grep", "write", "edit"}:
+                handler = {"read": read_handler, "glob": glob_handler, "grep": grep_handler,
+                           "write": write_handler, "edit": edit_handler}[name]
+                content = handler.run(args, self.config)
             elif name == "skill_load":
-                skill_id = args["name"]
-                if skill_id not in self.config["agent_extensions"].get(request.agent_id, {}).get("skills", []):
-                    return ToolResult("skill is not enabled for this Agent", False)
-                content = load_skills(self.config["home"], [skill_id], self.config["skill_policy"].get("max_skill_chars", limit))
+                content = skill_handler.run(args, self.config, self.agent_id)
             else:
                 return ToolResult("tool requires asynchronous dispatch", False)
             return ToolResult(content[:limit] or "(no result)")
-        except (OSError, ValueError, TypeError, KeyError, SyntaxError, ZeroDivisionError, OverflowError, re.error) as error:
+        except (OSError, ValueError, TypeError, KeyError, PermissionError, SyntaxError,
+                ZeroDivisionError, OverflowError, re.error) as error:
             return ToolResult(f"tool failed: {type(error).__name__}", False)
 
-
     async def execute(self, name: str, arguments: dict[str, Any]) -> ToolResult:
-        """Run a permitted tool using this Agent's fixed grants and config."""
+        """Call the bound scoped, network, shell or synchronous ability handler."""
         request = ToolRequest(self.agent_id, name, arguments)
-        if name == "memory_search":
-            if name not in self.grants:
-                return ToolResult("tool is not granted", False)
-            if self.memory_retriever is None or self.scope is None:
-                return ToolResult("memory search is unavailable for this run", False)
-            if not isinstance(arguments, dict):
-                return ToolResult("invalid tool arguments", False)
-            try:
-                found = self.memory_retriever.search(
-                    arguments["query"], self.scope, self.agent_id,
-                    group_id=arguments.get("group_id"), limit=arguments.get("limit", 5))
-                result = found.as_dict()
-                cap = self.config["memory"]["search_max_result_chars"]
-                for match in result["matches"]:
-                    match["content"] = match["content"][:max(1, cap // max(1, len(result["matches"])) - 300)]
-                while len(json.dumps(result, ensure_ascii=False)) > cap and result["matches"]:
-                    result["matches"].pop()
-                if len(json.dumps(result, ensure_ascii=False)) > cap:
-                    return ToolResult("memory search result exceeds configured limit", False)
-                return ToolResult(json.dumps(result, ensure_ascii=False))
-            except (ValueError, KeyError, TypeError, PermissionError, OSError) as error:
-                return ToolResult(f"memory search failed: {type(error).__name__}", False)
-        if name in {"user_profile_update", "plan_update", "plan_check", "schedule_create", "schedule_list"}:
-            if name not in self.grants or self.scope is None or not isinstance(arguments, dict):
-                return ToolResult("tool is not granted", False)
-            try:
-                if name == "user_profile_update":
-                    output = UserProfile(self.config["home"], self.config["user_profile"]["max_chars"]).add(arguments["fact"])
-                elif name in {"schedule_create", "schedule_list"}:
-                    scheduler = ScheduleStore(self.config["home"], self.config["schedule"])
-                    output = (scheduler.create(arguments["prompt"], arguments["run_at"], arguments.get("interval_seconds"))
-                              if name == "schedule_create" else scheduler.list())
-                else:
-                    plan = DynamicPlan(self.config["home"], self.scope, self.agent_id, self.config["limits"]["max_plan_steps"])
-                    output = (plan.update(arguments["steps"], arguments["reason"]) if name == "plan_update" else
-                              plan.check(arguments["step_id"], arguments["passed"], arguments["evidence"]))
-                return ToolResult(json.dumps(output, ensure_ascii=False))
-            except (OSError, ValueError, KeyError, TypeError) as error:
-                return ToolResult(f"tool failed: {type(error).__name__}", False)
-        if request.name not in {"web_fetch", "url_to_md", "bash"}:
-            return self.execute_sync(request)
-        if request.name not in self.grants:
-            return ToolResult("tool is not granted", False)
-        args = request.arguments
-        if not isinstance(args, dict):
-            return ToolResult("invalid tool arguments", False)
-        settings = self.config["tool_runtime"]
+        denied = self._authorized(request)
+        if denied:
+            return denied
         try:
-            if request.name in {"web_fetch", "url_to_md"}:
-                url = args["url"]
-                if not isinstance(url, str) or len(url) > settings["max_url_chars"]:
-                    raise ValueError("invalid URL")
-                content = await _fetch_public(url, self.config)
-                if request.name == "web_fetch":
-                    length = max(1, min(int(args.get("max_length", settings["max_result_chars"])), settings["max_result_chars"]))
-                    return ToolResult(content[:length] or "(empty page)")
-                path = _path(_workspace(self.config), args.get("output_path") or "web-page.md")
-                if path.exists() and not args.get("overwrite", False):
-                    raise ValueError("output file already exists")
-                markdown = f"# 网页内容\n\n来源：{url}\n\n{content}\n"
-                if len(markdown.encode("utf-8")) > settings["max_file_bytes"]:
-                    raise ValueError("page exceeds file limit")
-                path.parent.mkdir(parents=True, exist_ok=True)
-                _replace_file(path, markdown)
-                return ToolResult(f"Saved {path.relative_to(_workspace(self.config))}")
-            if settings.get("allow_shell") is not True:
-                return ToolResult("bash is disabled; set tool_runtime.allow_shell = true", False)
-            command = args["command"]
-            if not isinstance(command, str) or not command.strip() or len(command) > settings["max_command_chars"]:
-                raise ValueError("invalid command")
-            cwd = _path(_workspace(self.config), args.get("cwd", "."))
-            if not cwd.is_dir():
-                raise ValueError("invalid cwd")
-            timeout = max(1, min(int(args.get("timeout", settings["shell_timeout_seconds"])), settings["shell_timeout_seconds"]))
-            shell_env = {name: os.environ[name] for name in settings["shell_env_allowlist"] if name in os.environ}
-            process = await asyncio.create_subprocess_exec("/bin/sh", "-c", command, cwd=str(cwd), env=shell_env,
-                                                           stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-            try:
-                stdout, stderr, _ = await asyncio.wait_for(asyncio.gather(
-                    _drain(process.stdout, settings["max_result_chars"]),
-                    _drain(process.stderr, settings["max_result_chars"]), process.wait()), timeout=timeout)
-            except TimeoutError:
-                process.kill()
-                await process.wait()
-                return ToolResult("command timed out", False)
-            content = f"returncode: {process.returncode}\nstdout:\n{stdout.decode(errors='replace')}\nstderr:\n{stderr.decode(errors='replace')}"
-            return ToolResult(content[:settings["max_result_chars"]], process.returncode == 0)
-        except (OSError, ValueError, TypeError, KeyError, httpx.HTTPError) as error:
+            if name == "memory_search":
+                if self.memory_retriever is None or self.scope is None:
+                    return ToolResult("memory search is unavailable for this run", False)
+                content = memory_handler.run(arguments, self.config, self.memory_retriever, self.scope, self.agent_id)
+            elif name in {"plan_update", "plan_check"}:
+                if self.scope is None:
+                    return ToolResult("plan scope is unavailable", False)
+                handler = plan_update_handler if name == "plan_update" else plan_check_handler
+                content = handler.run(arguments, self.config, self.scope, self.agent_id)
+            elif name == "user_profile_update":
+                if self.scope is None:
+                    return ToolResult("profile scope is unavailable", False)
+                content = profile_handler.run(arguments, self.config)
+            elif name in {"schedule_create", "schedule_list"}:
+                if self.scope is None:
+                    return ToolResult("schedule scope is unavailable", False)
+                handler = schedule_create_handler if name == "schedule_create" else schedule_list_handler
+                content = handler.run(arguments, self.config)
+            elif name == "web_fetch":
+                content = await web_fetch_handler.run(arguments, self.config)
+            elif name == "url_to_md":
+                content = await url_to_md_handler.run(arguments, self.config)
+            elif name == "bash":
+                content, success = await bash_handler.run(arguments, self.config)
+                return ToolResult(content, success)
+            else:
+                return self.execute_sync(request)
+            return ToolResult(content)
+        except (OSError, ValueError, TypeError, KeyError, PermissionError, httpx.HTTPError) as error:
             return ToolResult(f"tool failed: {type(error).__name__}", False)
 
 

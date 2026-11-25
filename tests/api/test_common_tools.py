@@ -1,6 +1,9 @@
 """Exercise the Bamboo-inspired common tools through FutureWork's dispatcher."""
 
 import asyncio
+from importlib import import_module
+from importlib.resources import files
+import tomllib
 
 import httpx
 from fastapi.testclient import TestClient
@@ -8,7 +11,7 @@ from fastapi.testclient import TestClient
 from futurework.api.app import create_app
 from futurework.config import load_config
 from futurework.home import ensure_home
-from futurework.runtime import tool_dispatch
+from futurework.abilities.tools.web_fetch import handler as web_fetch_handler
 from futurework.runtime.tool_dispatch import ToolRequest, execute, execute_async
 
 
@@ -41,7 +44,7 @@ def test_skill_load_requires_agent_enablement(tmp_path):
 
 def test_web_fetch_and_markdown_write(tmp_path, monkeypatch):
     config = load_config(ensure_home(tmp_path / "home"))
-    assert not asyncio.run(tool_dispatch._public_url("http://127.0.0.1/private"))
+    assert not asyncio.run(web_fetch_handler.public_url("http://127.0.0.1/private"))
 
     async def public(url):
         return True
@@ -50,9 +53,9 @@ def test_web_fetch_and_markdown_write(tmp_path, monkeypatch):
         return httpx.Response(200, headers={"content-type": "text/html"},
                               text="<html><body><h1>Title</h1><script>secret</script><p>Visible</p></body></html>")
 
-    monkeypatch.setattr(tool_dispatch, "_public_url", public)
+    monkeypatch.setattr(web_fetch_handler, "public_url", public)
     original = httpx.AsyncClient
-    monkeypatch.setattr(tool_dispatch.httpx, "AsyncClient", lambda **kwargs: original(transport=httpx.MockTransport(handle), **kwargs))
+    monkeypatch.setattr(web_fetch_handler.httpx, "AsyncClient", lambda **kwargs: original(transport=httpx.MockTransport(handle), **kwargs))
     grants = ["web_fetch", "url_to_md"]
     fetch = asyncio.run(execute_async(ToolRequest("research", "web_fetch", {"url": "https://example.org/page"}), grants, config))
     assert fetch.success and "Visible" in fetch.content and "secret" not in fetch.content
@@ -70,9 +73,9 @@ def test_web_redirect_to_private_address_is_blocked(tmp_path, monkeypatch):
     def handle(request):
         return httpx.Response(302, headers={"location": "http://127.0.0.1/private"})
 
-    monkeypatch.setattr(tool_dispatch, "_public_url", public)
+    monkeypatch.setattr(web_fetch_handler, "public_url", public)
     original = httpx.AsyncClient
-    monkeypatch.setattr(tool_dispatch.httpx, "AsyncClient", lambda **kwargs: original(transport=httpx.MockTransport(handle), **kwargs))
+    monkeypatch.setattr(web_fetch_handler.httpx, "AsyncClient", lambda **kwargs: original(transport=httpx.MockTransport(handle), **kwargs))
     result = asyncio.run(execute_async(ToolRequest("research", "web_fetch", {"url": "https://example.org"}), ["web_fetch"], config))
     assert not result.success
 
@@ -92,3 +95,15 @@ def test_ui_only_lists_implemented_tools(tmp_path):
     tools = client.get("/api/v1/bootstrap").json()["tools"]
     assert {"read", "write", "edit", "bash", "web_fetch"}.issubset(tools)
     assert "代码执行" not in tools
+
+
+def test_each_shipped_tool_manifest_points_to_a_real_handler():
+    root = files("futurework").joinpath("abilities", "tools")
+    for directory in root.iterdir():
+        manifest = directory.joinpath("manifest.toml")
+        if not manifest.is_file():
+            continue
+        definition = tomllib.loads(manifest.read_text(encoding="utf-8"))
+        assert definition["enabled"] is True
+        module_name, method_name = definition["executor"].split(":")
+        assert callable(getattr(import_module(module_name), method_name))
