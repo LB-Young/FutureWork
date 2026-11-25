@@ -16,6 +16,13 @@ let reconnectTimer;
 let toastTimer;
 const $ = (selector) => document.querySelector(selector);
 const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
+const renderMessageText = (value) => String(value ?? '').split(/(https:\/\/[^\s<>"']+)/g).map((part) => {
+  if (!part.startsWith('https://')) return escapeHtml(part);
+  const safe = escapeHtml(part);
+  const image = /\.(png|jpe?g|webp|gif)(?:\?[^\s]*)?$/i.test(part);
+  return image ? `<a href="${safe}" target="_blank" rel="noopener noreferrer"><img src="${safe}" alt="生成的图片" style="max-width:100%;max-height:320px;border-radius:9px"></a>`
+    : `<a href="${safe}" target="_blank" rel="noopener noreferrer">${safe}</a>`;
+}).join('');
 const itemById = (id) => [...agents, ...groups].find((item) => item.id === id);
 const avatar = (item, className = '') => `<span class="avatar ${className}" style="background:${item.color};color:${item.ink}">${escapeHtml(item.icon)}</span>`;
 
@@ -96,7 +103,7 @@ function renderChat() {
     const face = assistant ? '<div class="avatar assistant-avatar">✦</div>' : avatar(speakerAgent || item);
     const approvalCard = message.approval ? `<div class="task-card"><span class="task-card-label">待我审批</span><h4>${escapeHtml(message.approval_description)}</h4><button class="approve-action" data-approval="${message.approval_id}" data-decision="approve">批准</button><button class="approve-action" data-approval="${message.approval_id}" data-decision="reject" style="margin-left:15px;color:#a08373">拒绝</button></div>` : '';
     const taskCard = message.task_id && !own ? `<div class="task-card"><span class="task-card-label">任务已记录</span><button class="task-action" data-task="${message.task_id}">查看任务分派</button></div>` : '';
-    return `<div class="message-row ${own ? 'mine' : ''}">${own ? '' : face}<div><div class="message-meta">${escapeHtml(message.speaker)} · ${formatTime(message.created_at)}</div><div class="bubble">${escapeHtml(message.text)}${approvalCard}${taskCard}</div></div></div>`;
+    return `<div class="message-row ${own ? 'mine' : ''}">${own ? '' : face}<div><div class="message-meta">${escapeHtml(message.speaker)} · ${formatTime(message.created_at)}</div><div class="bubble">${renderMessageText(message.text)}${approvalCard}${taskCard}</div></div></div>`;
   }).join('');
   document.querySelectorAll('.approve-action').forEach((button) => button.addEventListener('click', () => decideApproval(button.dataset.approval, button.dataset.decision)));
   document.querySelectorAll('.task-action').forEach((button) => button.addEventListener('click', () => viewTask(button.dataset.task)));
@@ -248,6 +255,24 @@ function connectEvents() {
 }
 
 $('#messageForm').addEventListener('submit', sendMessage);
+$('#attachButton').addEventListener('click', () => $('#imageInput').click());
+$('#imageInput').addEventListener('change', async (event) => {
+  const file = event.target.files[0];
+  if (!file) return;
+  try {
+    const base64 = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result).split(',', 2)[1]);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+    const uploaded = await api('/images', {method: 'POST', body: JSON.stringify({filename: file.name, media_type: file.type, data_base64: base64})});
+    const field = $('#messageInput');
+    field.value += `${field.value ? '\n' : ''}图片：${uploaded.path}。请使用 image_analyze 工具分析。`;
+    field.focus();
+  } catch (error) { showToast(error.message); }
+  finally { event.target.value = ''; }
+});
 $('#messageInput').addEventListener('keydown', (event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); $('#messageForm').requestSubmit(); } });
 $('#homeButton').addEventListener('click', () => selectConversation('assistant'));
 $('#railAgents').addEventListener('click', () => { $('#sidebar').classList.remove('collapsed'); $('#sidebar').classList.add('mobile-open'); $('#agentsToggle').setAttribute('aria-expanded', 'true'); $('#agentList').classList.remove('collapsed'); });

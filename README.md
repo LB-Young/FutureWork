@@ -30,7 +30,7 @@ FutureWork 是一个可以在本机安装和运行的 Agent 团队应用。界�
 | 数据与记忆 | 消息、任务、审批、已读位置和事件保存在 SQLite；提交后的消息按小未、好友、群聊分别镜像为原始 JSONL，并生成有来源标记的 Markdown 经验。人物和群聊长期介绍保存在对应 TOML 旁边。 |
 | 页面 | 支持好友与群聊切换、最近消息、全部消息、待审批筛选、Agent 配置和任务状态查看。 |
 
-页面现在只列出有执行器的工具。`read_file`、`glob_files`、`grep_files` 是兼容旧配置的别名；新配置使用 `read`、`glob`、`grep`。模型运行时另有只读的 `memory_search`，按当前作用域检索记忆。浏览器自动化、BKN、LSP、Workflow、MCP、图像和视频模型、持久任务队列尚未接入。Skill 的 `SKILL.md` 可以作为 Agent 的方法说明加载到提示词中，但安装 Skill 不会自动授予工具。任务初稿由当前服务进程的后台任务生成；服务在生成中退出时，需要人工检查任务状态。
+页面现在只列出有执行器的工具。`read_file`、`glob_files`、`grep_files` 是兼容旧配置的别名；新配置使用 `read`、`glob`、`grep`。模型运行时另有只读的 `memory_search`，按当前作用域检索记忆。图片理解、生成与编辑以及文生视频已接入；浏览器自动化、BKN、LSP、Workflow、MCP、视频理解与编辑、持久任务队列尚未接入。Skill 的 `SKILL.md` 可以作为 Agent 的方法说明加载到提示词中，但安装 Skill 不会自动授予工具。任务初稿由当前服务进程的后台任务生成；服务在生成中退出时，需要人工检查任务状态。
 
 ## 安装与首次运行
 
@@ -318,7 +318,11 @@ skills = ["技能ID"]
 
 `schedule_create` 支持带时区的 ISO 时间和可选重复间隔，`schedule_list` 查询状态。定时任务保存在 `data/schedules/`，服务运行期间按 `app.toml [schedule] poll_seconds` 扫描，到期后作为小未会话请求执行；服务停止期间不会执行，重新启动后会处理逾期任务。重复间隔不能短于 `min_interval_seconds`。定时任务执行仍依赖已配置的模型。
 
-**媒体能力现状：** 小T、小V和多媒体群在初始化后可见、可聊天和协作规划；默认 `default_fast` 是文本模型。当前消息接口没有图片/视频附件输入，模型网关没有图片/视频生成与编辑执行器，因此这三项配置不代表媒体处理已就绪。需要进一步接入媒体模型别名、附件存储和媒体工具，才能实际理解、生成或编辑媒体；系统提示词要求 Agent 明确报告缺少的能力。
+**媒体能力：** 小T默认使用文本模型调度 `image_analyze` 和 `media_generate`；前者把工作区图片或 HTTPS 图片传给配置的视觉模型，后者按 `image_generation`、`image_edit`、`video_generation` 选择媒体模型。小V默认可用 `media_generate` 进行文生视频。多媒体群可由小未分派给这两个好友。网页输入框的 `＋` 可以上传 PNG、JPEG、WebP 或 GIF 图片；上传后输入框会插入工作区相对路径，发送消息后小T可调用图片理解工具。图片最大体积由 `media.toml [media] max_image_bytes` 控制。图片编辑的 `image_url` 当前要求提供媒体平台可访问的 URL；本地上传路径仅供图片理解工具读取。
+
+`models.toml` 已包含 Bamboo 对应的阿里云万相文生图、图片编辑、文生视频、OpenRouter 图片模型和阿里云 Qwen-VL 视觉模型。`media.toml [media.aliases]` 按能力选择模型别名。阿里云媒体任务使用异步提交和限时轮询，返回任务 ID 与结果 URL；OpenRouter 图片接口返回的 `b64_json` 会保存到 `~/.FutureWork/data/media/`。云平台若返回 URL，当前直接显示 URL，不自动下载远程文件。轮询超时会返回 `PENDING` 和任务 ID；可以在平台侧继续查询。视频理解和视频编辑目前没有可用执行器，不能把小V的角色介绍视为已经具备这两种能力。
+
+密钥解析顺序为对应进程环境变量、本机 `~/.bamboo/.env` 同名变量，再按 `providers.<平台>.bamboo_model` 指定的模型名读取 `~/.bamboo/configs/models.yaml` 的 `api_key`；该字段若为 `${变量名}`，会从进程环境或 Bamboo 的 `.env` 解析。读取只发生在调用模型时；FutureWork 仓库、用户 TOML 和 API 返回值都不保存该密钥。若你的 Bamboo 配置目录不同，请通过环境变量提供密钥。建议在多个模型使用不同账号时单独设置环境变量，避免同平台共用 Bamboo 模型的密钥。
 
 ## 用户数据目录
 

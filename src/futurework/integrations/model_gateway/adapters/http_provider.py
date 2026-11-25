@@ -11,6 +11,7 @@ import httpx
 
 from futurework.integrations.model_gateway.types import ModelRequest, ModelResult, ToolCall
 from futurework.integrations.model_gateway.adapters.base import ModelAdapter
+from futurework.integrations.model_gateway.credentials import _local_env, api_key
 
 
 ENV_REFERENCE = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$")
@@ -21,7 +22,7 @@ def _resolve(value: str) -> str:
     match = ENV_REFERENCE.fullmatch(value)
     if not match:
         return value
-    resolved = os.environ.get(match.group(1), "")
+    resolved = os.environ.get(match.group(1), "") or _local_env(match.group(1))
     if not resolved:
         raise RuntimeError(f"缺少模型配置环境变量 {match.group(1)}")
     return resolved
@@ -108,7 +109,7 @@ class HttpProviderAdapter(ModelAdapter):
         """POST a Bamboo-compatible envelope to the exact configured endpoint."""
         provider, model, options = self.provider, self.model, self.options
         env_name = provider.get("api_key_env", "")
-        key = os.environ.get(env_name, "") if env_name else ""
+        key = api_key(provider)
         if not key and not provider.get("allow_no_key", False):
             raise RuntimeError(f"缺少模型密钥环境变量 {env_name}")
         headers = {"Content-Type": "application/json"}

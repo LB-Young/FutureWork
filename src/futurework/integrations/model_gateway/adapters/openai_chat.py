@@ -1,12 +1,12 @@
 """Call an OpenAI compatible Chat Completions endpoint for text responses."""
 
 import json
-import os
 
 import httpx
 
 from futurework.integrations.model_gateway.types import ModelRequest, ModelResult, ToolCall
 from futurework.integrations.model_gateway.adapters.base import ModelAdapter
+from futurework.integrations.model_gateway.credentials import api_key
 
 
 class OpenAIChatAdapter(ModelAdapter):
@@ -16,7 +16,7 @@ class OpenAIChatAdapter(ModelAdapter):
         """Send an OpenAI compatible Chat Completions request."""
         provider, model, options = self.provider, self.model, self.options
         env_name = provider.get("api_key_env", "")
-        key = os.environ.get(env_name) if env_name else ""
+        key = api_key(provider)
         if not key and not provider.get("allow_no_key", False):
             raise RuntimeError(f"缺少模型密钥环境变量 {env_name}")
         url = provider["base_url"].rstrip("/") + "/chat/completions"

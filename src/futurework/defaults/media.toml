@@ -1,0 +1,14 @@
+# 媒体模型按类型单独配置别名；没有密钥时由工具明确报错。
+schema_version = 1
+
+[media]
+request_timeout_seconds = 120
+task_timeout_seconds = 600
+poll_interval_seconds = 2
+max_image_bytes = 20971520
+
+[media.aliases]
+image_understanding = "aliyun_qwen_vl"
+image_generation = "aliyun_wanx_t2i"
+image_edit = "aliyun_wanx_edit"
+video_generation = "aliyun_wanx_t2v"

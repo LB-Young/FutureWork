@@ -1,0 +1,7 @@
+# 图片生成、图片编辑和视频生成共用配置驱动的媒体工具。
+schema_version = 1
+id = "media_generate"
+version = "0.1.0"
+kind = "tool"
+executor = "futurework.abilities.tools.media_generate.handler:run"
+enabled = true

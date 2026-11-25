@@ -5,47 +5,56 @@ schema_version = 1
 adapter = "openai_chat"
 base_url = "https://api.deepseek.com"
 api_key_env = "DEEPSEEK_API_KEY"
+bamboo_model = "deepseek-chat"
 
 [providers.openai]
 adapter = "openai_chat"
 base_url = "https://api.openai.com/v1"
 api_key_env = "OPENAI_API_KEY"
+bamboo_model = "gpt-default"
 
 [providers.aliyun]
 adapter = "openai_chat"
 base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 api_key_env = "DASHSCOPE_API_KEY"
+bamboo_model = "aliyun-qwen-plus"
 
 [providers.kimi]
 adapter = "openai_chat"
 base_url = "https://api.moonshot.cn/v1"
 api_key_env = "MOONSHOT_API_KEY"
+bamboo_model = "kimi-k3"
 
 [providers.minimax]
 adapter = "openai_chat"
 base_url = "https://api.minimaxi.com/v1"
 api_key_env = "MINIMAX_API_KEY"
+bamboo_model = "minimax-m3"
 
 [providers.openrouter]
 adapter = "openai_chat"
 base_url = "https://openrouter.ai/api/v1"
 api_key_env = "OPENROUTER_API_KEY"
+bamboo_model = "openrouter-gpt-5-image-mini"
 
 [providers.anthropic]
 adapter = "anthropic_messages"
 base_url = "https://api.anthropic.com"
 api_key_env = "ANTHROPIC_API_KEY"
+bamboo_model = "claude-default"
 api_version = "2023-06-01"
 
 [providers.mimo]
 adapter = "openai_chat"
 base_url = "https://api.xiaomimimo.com/v1"
 api_key_env = "MIMO_API_KEY"
+bamboo_model = "mimo-default"
 
 [providers.zhipu]
 adapter = "openai_chat"
 base_url = "https://open.bigmodel.cn/api/paas/v4"
 api_key_env = "ZHIPU_API_KEY"
+bamboo_model = "zhipu-glm"
 
 [providers.ollama]
 adapter = "openai_chat"
@@ -64,6 +73,7 @@ allow_insecure_http = false
 adapter = "http_provider"
 base_url = "${HTTP_PROVIDER_BASE_URL}"
 api_key_env = "HTTP_PROVIDER_API_KEY"
+bamboo_model = "http-provider-local-openai"
 allow_insecure_http = true
 
 [models.default_fast]
@@ -137,3 +147,55 @@ timeout_seconds = 60
 
 [models.company_http_local.extra_body]
 timeout = 30
+
+[models.aliyun_qwen_vl]
+provider = "aliyun"
+remote_id = "qwen-vl-max"
+model_type = "vision"
+supports_tools = false
+
+[models.aliyun_wanx_t2i]
+provider = "aliyun"
+remote_id = "wanx2.1-t2i-turbo"
+model_type = "image_generation"
+supports_tools = false
+base_url = "https://dashscope.aliyuncs.com/api/v1"
+[models.aliyun_wanx_t2i.extra_body]
+protocol = "dashscope_async"
+endpoint = "/services/aigc/text2image/image-synthesis"
+[models.aliyun_wanx_t2i.extra_body.parameters]
+size = "1024*1024"
+n = 1
+
+[models.aliyun_wanx_edit]
+provider = "aliyun"
+remote_id = "wanx2.1-imageedit"
+model_type = "image_edit"
+supports_tools = false
+base_url = "https://dashscope.aliyuncs.com/api/v1"
+[models.aliyun_wanx_edit.extra_body]
+protocol = "dashscope_async"
+endpoint = "/services/aigc/image2image/image-synthesis"
+[models.aliyun_wanx_edit.extra_body.input_fields]
+image_url = "base_image_url"
+
+[models.aliyun_wanx_t2v]
+provider = "aliyun"
+remote_id = "wan2.7-t2v-2026-06-12"
+model_type = "video_generation"
+supports_tools = false
+base_url = "https://dashscope.aliyuncs.com/api/v1"
+[models.aliyun_wanx_t2v.extra_body]
+protocol = "dashscope_async"
+endpoint = "/services/aigc/video-generation/video-synthesis"
+
+[models.openrouter_image]
+provider = "openrouter"
+remote_id = "openai/gpt-5-image-mini"
+model_type = "image_generation"
+supports_tools = false
+[models.openrouter_image.extra_body]
+protocol = "openrouter_images"
+endpoint = "/images"
+[models.openrouter_image.extra_body.parameters]
+n = 1

@@ -1,12 +1,12 @@
 """Call the Anthropic Messages API while keeping the gateway message contract."""
 
 import json
-import os
 
 import httpx
 
 from futurework.integrations.model_gateway.types import ModelRequest, ModelResult, ToolCall
 from futurework.integrations.model_gateway.adapters.base import ModelAdapter
+from futurework.integrations.model_gateway.credentials import api_key
 
 
 class AnthropicAdapter(ModelAdapter):
@@ -16,7 +16,7 @@ class AnthropicAdapter(ModelAdapter):
         """Translate system and conversation messages into Anthropic's request format."""
         provider, model, options = self.provider, self.model, self.options
         env_name = provider["api_key_env"]
-        key = os.environ.get(env_name)
+        key = api_key(provider)
         if not key:
             raise RuntimeError(f"缺少模型密钥环境变量 {env_name}")
         system = "\n".join(item["content"] for item in request.messages if item["role"] == "system")
@@ -32,7 +32,23 @@ class AnthropicAdapter(ModelAdapter):
                                "input": json.loads(call["function"]["arguments"])} for call in item["tool_calls"])
                 turns.append({"role": "assistant", "content": blocks})
             else:
-                turns.append({"role": item["role"], "content": item["content"]})
+                content = item["content"]
+                if isinstance(content, list):
+                    converted = []
+                    for block in content:
+                        if block.get("type") == "text":
+                            converted.append(block)
+                        elif block.get("type") == "image_url":
+                            source = block["image_url"]["url"]
+                            if source.startswith("data:image/") and ";base64," in source:
+                                header, encoded = source.split(",", 1)
+                                converted.append({"type": "image", "source": {"type": "base64", "media_type": header[5:].split(";", 1)[0], "data": encoded}})
+                            elif source.startswith("https://"):
+                                converted.append({"type": "image", "source": {"type": "url", "url": source}})
+                            else:
+                                raise ValueError("不支持的 Anthropic 图片地址")
+                    content = converted
+                turns.append({"role": item["role"], "content": content})
         body = {"model": model["remote_id"], "system": system, "messages": turns,
                 "max_tokens": model.get("max_output_tokens", options["max_output_tokens"])}
         if model.get("temperature", options.get("temperature")) is not None:

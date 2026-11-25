@@ -1,0 +1,7 @@
+# 图片理解工具，由 Agent TOML 授权。
+schema_version = 1
+id = "image_analyze"
+version = "0.1.0"
+kind = "tool"
+executor = "futurework.abilities.tools.image_analyze.handler:run"
+enabled = true

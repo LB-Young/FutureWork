@@ -13,6 +13,7 @@ WEB_DIRECTORY = files("futurework").joinpath("web")
 DEFAULT_CONFIG = files("futurework").joinpath("defaults", "app.toml")
 DEFAULT_CONTEXT = files("futurework").joinpath("defaults", "context.toml")
 DEFAULT_TOOLS = files("futurework").joinpath("defaults", "tools.toml")
+DEFAULT_MEDIA = files("futurework").joinpath("defaults", "media.toml")
 
 
 def _merge(base: dict, override: dict) -> dict:
@@ -37,6 +38,14 @@ def load_config(home: Path) -> dict:
     config["ui"]["assistant_name"] = assistant["name"]
     config["ui"]["assistant_role"] = assistant["role"]
     config["models"] = raw["models"]
+    with DEFAULT_MEDIA.open("rb") as source:
+        media_defaults = tomllib.load(source)
+    user_media = home / "media.toml"
+    media_settings = tomllib.loads(user_media.read_text(encoding="utf-8")) if user_media.exists() else {}
+    config["media"] = _merge(media_defaults["media"], media_settings.get("media", {}))
+    if any(type(config["media"][key]) is not int or config["media"][key] <= 0 for key in
+           ("request_timeout_seconds", "task_timeout_seconds", "poll_interval_seconds", "max_image_bytes")):
+        raise ValueError("media.toml contains invalid limits")
     config["home"] = home
     config["skill_policy"] = raw["settings"]["extensions"]["policy"]
     with DEFAULT_TOOLS.open("rb") as source:

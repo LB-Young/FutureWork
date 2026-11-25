@@ -14,6 +14,8 @@ from futurework.abilities.tools.edit import handler as edit_handler
 from futurework.abilities.tools.glob import handler as glob_handler
 from futurework.abilities.tools.grep import handler as grep_handler
 from futurework.abilities.tools.memory_search import handler as memory_handler
+from futurework.abilities.tools.media_generate import handler as media_handler
+from futurework.abilities.tools.image_analyze import handler as image_handler
 from futurework.abilities.tools.plan_check import handler as plan_check_handler
 from futurework.abilities.tools.plan_update import handler as plan_update_handler
 from futurework.abilities.tools.read import handler as read_handler
@@ -30,6 +32,11 @@ from futurework.contexts.types import ScopeKey
 
 
 SCHEMAS = {
+    "image_analyze": ("Analyze an HTTPS image URL or an image path in the user workspace.",
+                      {"image_url": {"type": "string"}, "prompt": {"type": "string"}}, ["image_url"]),
+    "media_generate": ("Generate an image, edit an image, or generate a video using a configured media model.",
+                       {"kind": {"type": "string", "enum": ["image_generation", "image_edit", "video_generation"]},
+                        "prompt": {"type": "string"}, "image_url": {"type": "string"}}, ["kind", "prompt"]),
     "calculator": ("Evaluate basic arithmetic.", {"expression": {"type": "string"}}, ["expression"]),
     "read_file": ("Read a UTF-8 file inside the configured workspace.",
                   {"path": {"type": "string"}, "offset": {"type": "integer"}, "limit": {"type": "integer"}}, ["path"]),
@@ -192,6 +199,10 @@ class ToolRegistry:
                 content = handler.run(arguments, self.config)
             elif name == "web_fetch":
                 content = await web_fetch_handler.run(arguments, self.config)
+            elif name == "media_generate":
+                content = await media_handler.run(arguments, self.config)
+            elif name == "image_analyze":
+                content = await image_handler.run(arguments, self.config)
             elif name == "url_to_md":
                 content = await url_to_md_handler.run(arguments, self.config)
             elif name == "bash":

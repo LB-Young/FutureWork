@@ -75,6 +75,8 @@ class ToolExecutionLayer:
                 valid = isinstance(value, expected[kind])
             if not valid:
                 raise ValueError(f"invalid type for {key}")
+            if "enum" in properties[key] and value not in properties[key]["enum"]:
+                raise ValueError(f"invalid value for {key}")
 
     def _validate_output(self, call: ToolCall, result: ToolResult) -> ToolResult:
         """Check result shape and keep model-visible text within the configured budget."""

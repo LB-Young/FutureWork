@@ -71,6 +71,8 @@ def load_user_config(home: Path) -> dict:
     for alias, model in models.get("models", {}).items():
         if model.get("provider") not in providers or not model.get("remote_id"):
             raise ValueError(f"Invalid model alias {alias} in {home / 'models.toml'}")
+        if model.get("model_type", "text") not in {"text", "vision", "image_generation", "image_edit", "video_generation"}:
+            raise ValueError(f"Invalid model type for {alias}")
     for agent_id, agent in agents.items():
         if not agent.get("name") or not agent.get("role") or not isinstance(agent.get("capabilities", {}), dict):
             raise ValueError(f"Incomplete Agent definition: {home / 'agents' / f'{agent_id}.toml'}")

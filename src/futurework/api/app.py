@@ -1,6 +1,8 @@
 """Assemble the local Agent Team API, workflows, and packaged web application."""
 
 import asyncio
+import base64
+import binascii
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from uuid import uuid4
@@ -58,6 +60,12 @@ class GroupInput(BaseModel):
 
 class ReadInput(BaseModel):
     message_id: str
+
+
+class ImageUpload(BaseModel):
+    filename: str = Field(min_length=1, max_length=200)
+    media_type: str
+    data_base64: str
 
 
 def create_app(home: str | Path | None = None, db_path: str | Path | None = None) -> FastAPI:
@@ -179,6 +187,29 @@ def create_app(home: str | Path | None = None, db_path: str | Path | None = None
     def messages(conversation_id: str):
         get_conversation(conversation_id)
         return database.messages(conversation_id, config["server"]["message_history_limit"])
+
+    @app.post("/api/v1/images", status_code=201)
+    def upload_image(body: ImageUpload):
+        """Store a small image in the user workspace for visual model tools."""
+        allowed = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp", "image/gif": ".gif"}
+        if body.media_type not in allowed or len(body.data_base64) > config["media"]["max_image_bytes"] * 2:
+            raise HTTPException(422, "不支持的图片类型或文件过大")
+        try:
+            content = base64.b64decode(body.data_base64, validate=True)
+        except binascii.Error as error:
+            raise HTTPException(422, "图片编码无效") from error
+        if not content or len(content) > config["media"]["max_image_bytes"]:
+            raise HTTPException(422, "图片为空或超出大小限制")
+        signatures = {"image/png": content.startswith(b"\x89PNG\r\n\x1a\n"),
+                      "image/jpeg": content.startswith(b"\xff\xd8\xff"),
+                      "image/webp": content.startswith(b"RIFF") and content[8:12] == b"WEBP",
+                      "image/gif": content.startswith((b"GIF87a", b"GIF89a"))}
+        if not signatures[body.media_type]:
+            raise HTTPException(422, "图片内容与声明的类型不符")
+        target = user_home / "workspace" / "uploads" / f"{uuid4().hex}{allowed[body.media_type]}"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(content)
+        return {"path": str(target.relative_to(user_home / "workspace"))}
 
     @app.post("/api/v1/conversations/{conversation_id}/messages", status_code=202)
     async def send_message(conversation_id: str, body: MessageInput, background_tasks: BackgroundTasks):
