@@ -35,7 +35,7 @@ def test_duplicate_assistant_request_does_not_reclassify_or_reexecute(tmp_path, 
         calls["classify"] += 1
         return "chat"
 
-    async def respond(self, agent, history):
+    async def respond(self, agent, history, scope=None):
         calls["respond"] += 1
         return "你好"
 
@@ -59,7 +59,7 @@ def test_duplicate_delegation_reuses_persisted_task(tmp_path, monkeypatch):
         calls["classify"] += 1
         return "task"
 
-    async def respond(self, agent, history):
+    async def respond(self, agent, history, scope=None):
         return "初稿已完成"
 
     monkeypatch.setattr("futurework.runtime.assistant_runtime.AssistantRuntime.classify", classify)

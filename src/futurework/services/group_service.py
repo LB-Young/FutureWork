@@ -4,6 +4,7 @@ import json
 from uuid import uuid4
 
 from futurework.database import utc_now
+from futurework.contexts.types import ScopeKey
 
 
 class GroupServiceError(Exception):
@@ -18,10 +19,11 @@ class GroupServiceError(Exception):
 class GroupService:
     """Validate and create groups using loaded config and Agent records."""
 
-    def __init__(self, database, config: dict, config_store) -> None:
+    def __init__(self, database, config: dict, config_store, memory_store=None) -> None:
         self.database = database
         self.config = config
         self.config_store = config_store
+        self.memory_store = memory_store
 
     def create(self, name: str, member_ids: list[str], mode: str) -> dict:
         """Persist a group and its TOML definition in one rollback batch."""
@@ -44,4 +46,6 @@ class GroupService:
                                 group["ink"], json.dumps(members), utc_now(), "active", mode))
             write_config("teams", group)
             self.database.emit(connection, "group.created", {"group_id": group_id})
+        if self.memory_store is not None:
+            self.memory_store.ensure_profile(ScopeKey("group", group_id))
         return group

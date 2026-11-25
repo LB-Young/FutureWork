@@ -2,6 +2,8 @@
 
 import json
 
+from futurework.contexts.types import ScopeKey
+
 class GroupController:
     """Use XiaoWei's model within one group's history to select members."""
 
@@ -15,7 +17,8 @@ class GroupController:
         return {"id": "assistant", "name": assistant["name"], "role": assistant["role"],
                 "model": assistant["model"]["id"]}
 
-    async def choose_members(self, members: list[dict], text: str, history: list[dict], limit: int) -> list[dict]:
+    async def choose_members(self, members: list[dict], text: str, history: list[dict], limit: int,
+                             group_id: str) -> list[dict]:
         """Resolve explicit mentions or request a bounded member selection."""
         active = [member for member in members if member and member["status"] == "active"]
         if not active:
@@ -28,7 +31,8 @@ class GroupController:
             f"你正在本群担任中控。根据用户消息选择最多 {limit} 位成员：{text}\n候选：{roster}\n"
             '只返回 JSON，例如 {"agent_ids":["design","write"]}；只能使用候选 ID。'
         )
-        selection = await self.agent_runtime.respond(self.profile(), history + [{"from": "me", "text": prompt}])
+        selection = await self.agent_runtime.respond(self.profile(), history + [{"from": "me", "text": prompt}],
+                                                     ScopeKey("group", group_id))
         try:
             selected_ids = json.loads(selection)["agent_ids"]
         except (ValueError, KeyError, TypeError):

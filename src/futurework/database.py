@@ -30,6 +30,7 @@ class Database:
     def __init__(self, path: Path):
         self.path = path
         self.lock = threading.RLock()
+        self.journal = None
 
     @contextmanager
     def transaction(self):
@@ -40,6 +41,8 @@ class Database:
             try:
                 yield connection
                 connection.commit()
+                if self.journal is not None:
+                    self.journal.sync(connection)
             except Exception:
                 connection.rollback()
                 raise

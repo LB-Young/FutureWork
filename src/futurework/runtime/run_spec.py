@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from typing import Any
+from futurework.contexts.types import ScopeKey
 
 
 @dataclass(frozen=True, slots=True)
@@ -15,10 +16,13 @@ class AgentRun:
     tools: tuple[str, ...]
     history: tuple[dict[str, Any], ...]
     config: dict[str, Any]
+    scope: ScopeKey
 
     @classmethod
-    def from_records(cls, agent: dict, history: list[dict], config: dict) -> "AgentRun":
+    def from_records(cls, agent: dict, history: list[dict], config: dict,
+                     scope: ScopeKey | None = None) -> "AgentRun":
         """Convert database and TOML records once at the runtime boundary."""
         return cls(agent_id=agent["id"], name=agent["name"], role=agent["role"],
                    model_alias=agent["model"], tools=tuple(agent.get("tools", [])),
-                   history=tuple(dict(item) for item in history), config=config)
+                   history=tuple(dict(item) for item in history), config=config,
+                   scope=scope or ScopeKey("assistant" if agent["id"] == "assistant" else "agent", agent["id"]))

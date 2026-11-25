@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from futurework.config import WEB_DIRECTORY, database_path, load_config
 from futurework.database import Database
 from futurework.config_store.writer import ConfigStore
+from futurework.contexts.store import MemoryStore
 from futurework.home import ensure_home
 from futurework.model import AgentRuntime
 from futurework.runtime.run_params import RunParams
@@ -62,9 +63,15 @@ def create_app(home: str | Path | None = None, db_path: str | Path | None = None
     config_store = ConfigStore(user_home)
     database = Database(database_path(config, user_home, Path(db_path) if db_path else None))
     database.initialize(config)
+    memory_store = MemoryStore(user_home, config["memory"], config["ui"]["assistant_name"])
+    memory_store.ensure_profiles()
+    with database.transaction() as connection:
+        memory_store.sync(connection)
+    database.journal = memory_store
     app = FastAPI(title="FutureWork API", version="0.1.0")
     app.state.config = config
     app.state.database = database
+    app.state.memory_store = memory_store
     app.state.home = user_home
 
     def get_conversation(conversation_id: str) -> dict:
@@ -79,15 +86,15 @@ def create_app(home: str | Path | None = None, db_path: str | Path | None = None
         raise HTTPException(404, "conversation not found")
 
     message_service = MessageService(database)
-    agent_service = AgentService(database, config, config_store, message_service)
-    group_service = GroupService(database, config, config_store)
+    agent_service = AgentService(database, config, config_store, message_service, memory_store)
+    group_service = GroupService(database, config, config_store, memory_store)
 
     @app.exception_handler(AgentServiceError)
     @app.exception_handler(GroupServiceError)
     async def service_error(request: Request, error: AgentServiceError | GroupServiceError):
         return JSONResponse(status_code=error.status_code, content={"detail": error.detail})
 
-    agent_runtime = AgentRuntime(config)
+    agent_runtime = AgentRuntime(config, memory_store=memory_store)
     task_runtime = TaskRuntime(database=database, config=config, config_store=config_store,
                                message_service=message_service, agent_service=agent_service,
                                agent_runtime=agent_runtime)

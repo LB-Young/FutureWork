@@ -16,7 +16,7 @@ def send(client, conversation_id, body):
 
 
 def test_assistant_dispatch_and_agent_file_survive_restart(tmp_path, monkeypatch):
-    async def fake_respond(self, agent, history):
+    async def fake_respond(self, agent, history, scope=None):
         return f"{agent['name']} 已处理"
 
     monkeypatch.setattr("futurework.model.AgentRuntime.respond", fake_respond)
@@ -36,7 +36,7 @@ def test_assistant_chat_stays_in_its_own_conversation(tmp_path, monkeypatch):
     async def chat_mode(self, text, history):
         return "chat"
 
-    async def fake_respond(self, agent, history):
+    async def fake_respond(self, agent, history, scope=None):
         return "你好，我是小未。"
 
     monkeypatch.setattr("futurework.runtime.assistant_runtime.AssistantRuntime.classify", chat_mode)
@@ -65,7 +65,7 @@ def test_approval_updates_agent_toml(tmp_path):
 
 
 def test_swarm_and_controlled_group_replies(tmp_path, monkeypatch):
-    async def fake_respond(self, agent, history):
+    async def fake_respond(self, agent, history, scope=None):
         return "design" if agent["id"] == "assistant" else f"{agent['name']} 的回复"
 
     monkeypatch.setattr("futurework.model.AgentRuntime.respond", fake_respond)
@@ -95,7 +95,7 @@ def test_installed_web_page_and_bootstrap_are_served(tmp_path):
 
 
 def test_manual_agent_edit_reloads_without_mixing_private_chats(tmp_path, monkeypatch):
-    async def fake_respond(self, agent, history):
+    async def fake_respond(self, agent, history, scope=None):
         assert all(item["conversation_id"] == agent["id"] for item in history)
         return f"{agent['name']} 知道这条私聊"
 
@@ -112,7 +112,7 @@ def test_manual_agent_edit_reloads_without_mixing_private_chats(tmp_path, monkey
 
 
 def test_controlled_group_can_assign_two_members_and_summarize(tmp_path, monkeypatch):
-    async def fake_respond(self, agent, history):
+    async def fake_respond(self, agent, history, scope=None):
         if agent["id"] == "assistant":
             return "任务已汇总" if "简要汇总" in history[-1]["text"] else '{"agent_ids":["design","write"]}'
         return f"{agent['name']} 已完成"

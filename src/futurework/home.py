@@ -14,9 +14,9 @@ DIRECTORIES = {
     "workflows": "用户人工编写或安装的 Workflow 定义。",
     "mcp": "用户配置的 MCP 连接定义，不保存明文密钥。",
     "memory": "按会话作用域隔离的记忆文件。",
-    "memory/assistant": "小未与用户私聊的专属记忆。",
-    "memory/agents": "每位 Agent 好友各自的私聊记忆子目录。",
-    "memory/teams": "每个 Team 各自的群共享记忆子目录。",
+    "memory/assistant": "小未个人助理私聊的原始消息 JSONL 与经验 Markdown。",
+    "memory/agents": "每位 Agent 好友各自的私聊 JSONL 与经验 Markdown。",
+    "memory/teams": "每个群聊独立的消息 JSONL、话题索引与参与者经验 Markdown。",
     "data": "SQLite、任务产物与其他持久运行数据。",
     "logs": "脱敏后的运行日志。",
     "cache": "可以重新生成的缓存。",
@@ -63,4 +63,7 @@ def ensure_home(override: str | Path | None = None) -> Path:
                 explanation.write_text(
                     f"# {definition.stem}\n\n这里存放 {definition.stem} 对应的独立记忆；不同 Agent 或 Team 的内容不得混用。\n", encoding="utf-8"
                 )
+    from futurework.contexts.store import MemoryStore
+
+    MemoryStore(home).ensure_profiles()
     return home

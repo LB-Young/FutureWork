@@ -2,6 +2,7 @@
 schema_version = 1
 id = "ideas"
 name = "灵感碰撞室"
+purpose = "围绕新想法开展开放讨论，收集研究、设计和文案视角。"
 status = "active"
 members = ["research", "design", "write"]
 mode = "swarm"

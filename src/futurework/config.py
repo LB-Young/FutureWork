@@ -10,6 +10,7 @@ from futurework.runtime.tool_dispatch import PUBLIC_TOOLS, SCHEMAS
 
 WEB_DIRECTORY = files("futurework").joinpath("web")
 DEFAULT_CONFIG = files("futurework").joinpath("defaults", "app.toml")
+DEFAULT_CONTEXT = files("futurework").joinpath("defaults", "context.toml")
 
 
 def _merge(base: dict, override: dict) -> dict:
@@ -36,6 +37,12 @@ def load_config(home: Path) -> dict:
     config["models"] = raw["models"]
     config["home"] = home
     config["skill_policy"] = raw["settings"]["extensions"]["policy"]
+    with DEFAULT_CONTEXT.open("rb") as source:
+        context_defaults = tomllib.load(source)
+    config["memory"] = _merge(context_defaults["memory"], raw["settings"]["context"].get("memory", {}))
+    if any(not isinstance(value, int) or isinstance(value, bool) or value <= 0
+           for value in config["memory"].values()):
+        raise ValueError("context.toml [memory] values must be positive integers")
     config["agent_extensions"] = {agent_id: item.get("extensions", {}) for agent_id, item in raw["agents"].items()}
     config["model"]["available_models"] = list(raw["models"]["models"])
     if config["model"]["default_model"] not in config["model"]["available_models"]:

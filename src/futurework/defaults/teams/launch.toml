@@ -2,6 +2,7 @@
 schema_version = 1
 id = "launch"
 name = "产品发布小组"
+purpose = "协同完成产品发布的设计、文案和日程安排。"
 status = "active"
 members = ["design", "write", "plan"]
 mode = "controlled"

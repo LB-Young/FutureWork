@@ -2,6 +2,7 @@
 schema_version = 1
 id = "weekly"
 name = "每周进展同步"
+purpose = "汇集研究、开发和计划进度，形成每周行动与待办。"
 status = "active"
 members = ["research", "code", "plan"]
 mode = "controlled"

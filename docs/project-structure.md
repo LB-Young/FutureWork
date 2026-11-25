@@ -31,9 +31,12 @@
 ├── models.toml                      # 多平台实例与模型别名
 ├── agents/
 │   ├── assistant.toml               # 小未
-│   └── <agent_id>.toml              # 手工编写或应用生成的 Agent 好友配置
+│   ├── assistant.md                 # 小未人物长期记忆；角色、性格、职责
+│   ├── <agent_id>.toml              # 手工编写或应用生成的 Agent 好友配置
+│   └── <agent_id>.md                # 好友长期人物记忆；不覆盖人工编辑
 ├── teams/
-│   └── <team_id>.toml               # 手工编写或应用生成的群聊/Team 配置
+│   ├── <team_id>.toml               # 手工编写或应用生成的群聊/Team 配置
+│   └── <team_id>.md                 # 群聊长期职责与协作约定
 ├── prompts/                         # 被 Agent 配置显式引用的长提示词
 ├── skills/
 │   └── <skill_id>/SKILL.md          # 用户人工安装的 Skill 及其资源
@@ -42,9 +45,10 @@
 ├── mcp/
 │   └── <server_id>.toml             # 用户配置的 MCP 连接；不存明文密钥
 ├── memory/
-│   ├── assistant/                   # 小未个人助理作用域
-│   ├── agents/<agent_id>/           # 每位好友的私聊记忆
-│   └── teams/<team_id>/             # 每个群聊的共享记忆
+│   ├── assistant/                   # 小未 messages.jsonl、experiences.md
+│   ├── agents/<agent_id>/           # 好友私聊 messages.jsonl、experiences.md
+│   └── teams/<team_id>/             # 群聊 messages.jsonl、overview.md
+│       └── topics/<topic>/          # index.md 和 <person_id>.md 经验
 ├── data/                            # SQLite、任务产物、运行状态
 ├── logs/                            # 脱敏日志
 └── cache/                           # 可重建缓存
@@ -53,6 +57,10 @@
 用户可以直接编辑 `agents/*.toml`、`teams/*.toml`，并手工安装 Skill、Workflow 和 MCP 配置。加载器以文件名和内部 ID 一致为基本条件，扫描用户目录，按 `app → models/扩展注册表 → Agent → Team → Runtime` 的顺序解析与交叉校验；Team 引用的 Agent、Agent 引用的模型和扩展必须存在且可用。有效配置投影到数据库，消息、审批、任务和已读状态继续留在数据库；数据库中的旧投影不能覆盖手写 TOML。目录中存在无效配置时，保留上一个有效版本并明确报告错误，不静默跳过或使用内置示例代替。运行开始时固定配置版本；手工改文件后通过重启或显式 reload 使新配置进入后续运行，进行中的运行不换版本。
 
 `skills/`、`workflows/`、`mcp/` 属于用户安装区域；应用随包发布的内置扩展只读，二者由同一个扩展注册表索引。发现一个扩展不等于启用或授权。`memory/` 与数据库中的消息/摘要共同组成上下文材料，但读写必须经过 `ScopeKey` 和权限策略，不能仅凭磁盘路径把某个 Agent 私聊记忆加载进群聊。密钥值由环境变量或系统密钥库提供，TOML 只保留引用。
+
+**当前文件记忆实现：** `contexts/types.py` 定义 `ScopeKey`，`contexts/store.py` 将 SQLite 已提交的消息按小未、好友、群聊分别写入 `messages.jsonl`。文件记录保留原文、发送者、时间、消息 ID 及任务/审批关联；数据库仍是页面消息和状态的主数据源。每次数据库事务提交后同步新增消息；启动时从数据库重放并按消息 ID 去重，补齐中断时未写入的文件。自动 Markdown 经验由 `ExperienceSummarizer` 从回复中提取有限行，附源消息 ID；好友和小未写入各自的 `experiences.md`，群聊按用户话题和发言人写入 `topics/<topic>/<person_id>.md`，`topics/<topic>/index.md` 汇总该话题参与者，`overview.md` 索引所有话题。原始 JSONL 不截断，Markdown 提取长度与提示词经验预算由 `context.toml [memory]` 控制。当前摘录不是模型深度反思，也不具备跨话题语义归并。
+
+`agents/assistant.md`、`agents/<agent_id>.md`、`teams/<team_id>.md` 是可人工维护的长期介绍。仅缺失时从 TOML 生成，不覆盖已有 Markdown。小未的个人对话和群中控都会加载所有人物、群聊介绍全文，供模型理解团队背景；当前自动分派排名仍由 `TaskPlanner` 的能力分值规则决定。个人对话只加载小未的私聊经验，群中控只加载当前群经验。好友私聊只加载该好友介绍与经验；群成员加载自己的介绍、当前群介绍和群经验，不加载其私聊经验。这是当前提示词可见性规则；后续更细的分享、检索、压缩、删除和多进程写入协调仍按目标架构扩展。
 
 ### 2.3 目标源码模块树（逻辑视图）
 
@@ -132,6 +140,7 @@ FutureWork/
 │   │   └── matching.py              # 纯 Python 能力匹配算法
 │   ├── contexts/
 │   │   ├── types.py                 # ScopeKey、ContextSnapshot、引用元数据
+│   │   ├── store.py                 # 当前：SQLite 消息镜像到独立 JSONL/Markdown
 │   │   ├── assistant_context.py     # 小未对话、计划摘要与任务追踪
 │   │   ├── agent_context.py         # Agent 私聊历史与私有记忆
 │   │   ├── group_context.py         # 群消息、群摘要与共享记忆

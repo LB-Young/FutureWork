@@ -27,7 +27,7 @@ FutureWork 是一个可以在本机安装和运行的 Agent 团队应用。界�
 | 群聊 | `swarm` 模式由成员轮流响应；`controlled` 模式由小未选择成员，必要时汇总多人回复。群聊读取本群自己的历史。 |
 | 模型 | 支持 OpenAI 兼容文本接口、Anthropic Messages 接口，以及 Bamboo 风格的公司 HTTP 模型代理；预置多家云平台与本地部署示例。只有选中的模型才需要可用。 |
 | 工具 | 已接通计算、工作区文件读取/搜索/写入/编辑、Skill 读取、公共网页抓取与保存，以及需显式开启的命令执行；调用前复核该 Agent 的授权。 |
-| 数据 | 消息、任务、审批、已读位置和事件保存在 SQLite；Agent 和 Team 定义保存在用户目录的 TOML。 |
+| 数据与记忆 | 消息、任务、审批、已读位置和事件保存在 SQLite；提交后的消息按小未、好友、群聊分别镜像为原始 JSONL，并生成有来源标记的 Markdown 经验。人物和群聊长期介绍保存在对应 TOML 旁边。 |
 | 页面 | 支持好友与群聊切换、最近消息、全部消息、待审批筛选、Agent 配置和任务状态查看。 |
 
 页面现在只列出有执行器的工具。`read_file`、`glob_files`、`grep_files` 是兼容旧配置的别名；新配置使用 `read`、`glob`、`grep`。浏览器自动化、BKN、LSP、Workflow、MCP、图像和视频模型、持久任务队列、完整记忆检索尚未接入。Skill 的 `SKILL.md` 可以作为 Agent 的方法说明加载到提示词中，但安装 Skill 不会自动授予工具。任务初稿由当前服务进程的后台任务生成；服务在生成中退出时，需要人工检查任务状态。
@@ -310,19 +310,26 @@ skills = ["技能ID"]
 ~/.futurework/
 ├── app.toml                 # 服务、模型、规划、权限和工具运行参数
 ├── models.toml              # 平台实例与模型别名
-├── agents/                 # 每位 Agent 好友的 TOML；assistant.toml 是小未
-├── teams/                  # 群聊 TOML
+├── agents/                 # assistant.toml/assistant.md，以及每位好友的 <id>.toml/<id>.md
+├── teams/                  # 每个群聊的 <id>.toml/<id>.md
 ├── skills/                 # 人工安装的 Skill
 ├── workflows/              # 预留的 Workflow 定义
 ├── mcp/                    # 预留的 MCP 连接定义
 ├── workspace/              # 内置文件工具的默认工作区
-├── memory/                 # 按助理、好友和群预留的独立记忆目录
+├── memory/
+│   ├── assistant/          # 小未私聊 messages.jsonl、experiences.md
+│   ├── agents/<id>/        # 好友私聊 messages.jsonl、experiences.md
+│   └── teams/<id>/         # 群聊 messages.jsonl、overview.md、topics/<话题>/<参与者>.md
 ├── data/                   # SQLite 与其他运行数据
 ├── logs/                   # 运行日志目录
 └── cache/                  # 可重建缓存
 ```
 
 首次初始化也会写入其他配置文件，例如 `tools.toml`、`matching.toml`、`planner.toml`、`runtime.toml`、`context.toml`、`extensions.toml`。它们中部分字段仍用于目标架构或后续扩展，不能仅凭目录存在判断功能已经完成。初始化时在用户目录生成的子目录说明文件是**用户本地文件**；仓库 GitHub 只跟踪根目录这一份 `README.md`。
+
+首次初始化会从 TOML 生成缺失的 `agents/<id>.md`、`teams/<id>.md` 人物或群聊长期介绍，包含角色、性格或协作职责等初始内容；以后可直接编辑 Markdown，程序不会覆盖。小未的介绍在 `agents/assistant.md`。小未每次调用模型时加载所有 Agent 和群聊的介绍全文；目前自动分派的 Agent 排名仍由能力分值规则决定。她在个人私聊中只读取自己的经验，在群中控时只读取当前群的经验。好友私聊只读取该好友的经验，群成员只读取该群的经验和自己的角色介绍，不能自动读取私聊经验。
+
+`messages.jsonl` 保存 SQLite 已提交消息的完整原文、发送者、时间、消息 ID 和关联任务/审批 ID；群聊日志保留每个发言人的名字。Markdown 经验由当前版本按用户请求和 Agent 回复自动提取若干行，写入 `experiences.md` 或群聊的主题/参与者文件，并以 `source` 标记关联原消息；它是可编辑的简要记录，不是模型生成的深度反思。`overview.md` 索引群聊处理过的话题，主题目录的 `index.md` 索引参与者经验。启动时会补齐数据库中尚未镜像的消息，重复启动不会重复追加。`context.toml` 的 `[memory]` 表控制经验提取行数、长度、主题名长度和注入提示词的经验长度；原始 JSONL 不截断。介绍 Markdown 全文会进入小未提示词，维护时应控制其篇幅。
 
 ## 页面与接口
 

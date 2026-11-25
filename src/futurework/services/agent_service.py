@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 from futurework.algorithm import TaskPlanner
+from futurework.contexts.types import ScopeKey
 from futurework.database import decode_agent, utc_now
 
 
@@ -20,11 +21,12 @@ class AgentServiceError(Exception):
 class AgentService:
     """Own Agent identity, default permissions, and versioned config writes."""
 
-    def __init__(self, database, config: dict, config_store, message_service) -> None:
+    def __init__(self, database, config: dict, config_store, message_service, memory_store=None) -> None:
         self.database = database
         self.config = config
         self.config_store = config_store
         self.message_service = message_service
+        self.memory_store = memory_store
         self.planner = TaskPlanner(config)
 
     def create_agent(self, name: str, role: str) -> dict:
@@ -37,6 +39,8 @@ class AgentService:
             created = self.create(connection, write_config, name, role, capability)
             self.message_service.insert(connection, created["id"], "agent", created["name"],
                                         f"你好，我是{created['name']}。我的职责是{created['role']}。")
+        if self.memory_store is not None:
+            self.memory_store.ensure_profile(ScopeKey("agent", created["id"]))
         return created
 
     def patch_agent(self, agent_id: str, proposal: dict) -> dict:

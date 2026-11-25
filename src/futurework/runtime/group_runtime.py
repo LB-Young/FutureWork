@@ -2,6 +2,7 @@
 
 import httpx
 
+from futurework.contexts.types import ScopeKey
 from futurework.runtime.group_controlled import GroupController
 from futurework.runtime.group_swarm import SwarmPolicy
 from futurework.runtime.task_factory import Task, TaskKind
@@ -21,6 +22,7 @@ class GroupChatRuntime:
     async def run(self, task: Task) -> None:
         """Run one bounded Swarm or XiaoWei-controlled group turn."""
         group = task.params.target.record
+        scope = ScopeKey("group", group["id"])
         text = task.params.message
         members = [self.database.agent(member_id) for member_id in group["members"]]
         history = self.database.messages(group["id"], self.config["server"]["message_history_limit"])
@@ -34,7 +36,7 @@ class GroupChatRuntime:
             selected = self.swarm.responders(members, text, limit)
         elif controlled:
             try:
-                selected = await self.controller.choose_members(members, text, history, limit)
+                selected = await self.controller.choose_members(members, text, history, limit, group["id"])
             except (RuntimeError, httpx.HTTPError, KeyError, IndexError, ValueError):
                 selected = []
             if not selected:
@@ -49,7 +51,7 @@ class GroupChatRuntime:
         for member in selected:
             history = self.database.messages(group["id"], self.config["server"]["message_history_limit"])
             try:
-                answer = await self.agent_runtime.respond(member, history)
+                answer = await self.agent_runtime.respond(member, history, scope)
             except (RuntimeError, httpx.HTTPError, KeyError, IndexError, ValueError) as error:
                 answer = f"模型暂时不可用：{type(error).__name__}。请检查配置后重试。"
             with self.database.transaction() as connection:
@@ -58,7 +60,7 @@ class GroupChatRuntime:
             controller = self.controller.profile()
             history = self.database.messages(group["id"], self.config["server"]["message_history_limit"])
             try:
-                summary = await self.agent_runtime.respond(controller, history + [{"from": "me", "text": "请仅根据本群成员刚才的回复，简要汇总已完成内容与待办。"}])
+                summary = await self.agent_runtime.respond(controller, history + [{"from": "me", "text": "请仅根据本群成员刚才的回复，简要汇总已完成内容与待办。"}], scope)
             except (RuntimeError, httpx.HTTPError, KeyError, IndexError, ValueError):
                 return
             with self.database.transaction() as connection:

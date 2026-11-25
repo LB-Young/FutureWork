@@ -12,6 +12,10 @@ def test_home_is_initialized_and_manual_config_survives(tmp_path):
     assert all((home / relative / "README.md").is_file() for relative in DIRECTORIES)
     assert "用户配置和运行数据" in (home / "README.md").read_text()
     assert (home / "agents" / "assistant.toml").is_file()
+    assert (home / "agents" / "assistant.md").is_file()
+    assert (home / "agents" / "research.md").is_file()
+    assert (home / "teams" / "launch.md").is_file()
+    assert (home / "memory" / "assistant" / "messages.jsonl").is_file()
     assert (home / "memory" / "agents" / "research" / "README.md").is_file()
     assert validate_home(home)["teams"]["ideas"]["mode"] == "swarm"
     manual = home / "agents" / "research.toml"
