@@ -10,7 +10,7 @@ from futurework.api.app import create_app
 from futurework.config import load_config
 from futurework.contexts.store import MemoryStore
 from futurework.contexts.types import ScopeKey
-from futurework.home import ensure_home
+from tests.support import sample_home
 from futurework.integrations.model_gateway.types import ModelResult
 from futurework.runtime.agent_executor import AgentRuntime
 
@@ -33,7 +33,7 @@ def test_separate_jsonl_and_experience_survive_restart(tmp_path, monkeypatch):
 
     monkeypatch.setattr("futurework.runtime.assistant_runtime.AssistantRuntime.classify", classify)
     monkeypatch.setattr("futurework.model.AgentRuntime.respond", reply)
-    home = ensure_home(tmp_path / "home")
+    home = sample_home(tmp_path / "home")
     client = TestClient(create_app(home))
     assert _send(client, "assistant", "助理私事").status_code == 202
     assert _send(client, "research", "研究私事").status_code == 202
@@ -62,7 +62,7 @@ def test_separate_jsonl_and_experience_survive_restart(tmp_path, monkeypatch):
 
 
 def test_prompt_reads_profiles_but_keeps_private_experience_out_of_group(tmp_path):
-    home = ensure_home(tmp_path / "home")
+    home = sample_home(tmp_path / "home")
     config = load_config(home)
     store = MemoryStore(home, config["memory"])
     store.ensure_profiles()
@@ -103,7 +103,7 @@ def test_prompt_reads_profiles_but_keeps_private_experience_out_of_group(tmp_pat
 
 
 def test_restart_recovers_a_committed_message_missing_from_jsonl(tmp_path):
-    home = ensure_home(tmp_path / "home")
+    home = sample_home(tmp_path / "home")
     first = create_app(home)
     database = first.state.database
     database.journal = None

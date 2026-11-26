@@ -12,7 +12,7 @@ message_history_limit = 100
 assistant_name = "小未"
 assistant_role = "个人助理"
 recent_limit = 6
-suggestions = ["帮我整理本周项目进展", "设计一个新产品的发布计划", "帮我分析竞品并创建需要的 Agent"]
+suggestions = ["帮我为新产品生成一张主视觉图", "帮我分析一段视频并提出改进建议", "帮我创建一个适合重复使用的 Skill"]
 default_agent_color = "#e0f1e9"
 default_agent_ink = "#398d73"
 
@@ -89,6 +89,10 @@ mark_interrupted_failed = true
 [execution]
 run_assigned_steps_with_model = true
 step_instruction = "请处理以下子任务并给出可交付的初稿。不能声称访问了未提供的外部工具、文件或实时数据。"
+
+[assistant_routing]
+skill_terms = ["skill", "技能"]
+skill_creation_terms = ["创建", "制作", "编写", "改进", "审查", "更新"]
 
 [runtime]
 max_parallel_agents = 3

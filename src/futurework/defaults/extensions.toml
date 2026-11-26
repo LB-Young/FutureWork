@@ -5,6 +5,11 @@ schema_version = 1
 auto_enable = false
 max_skill_chars = 12000
 
+[skill_creator]
+max_name_chars = 64
+max_description_chars = 500
+max_instructions_chars = 10000
+
 [workflow]
 max_steps = 12
 max_input_chars = 4000

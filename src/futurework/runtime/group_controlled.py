@@ -29,7 +29,7 @@ class GroupController:
         roster = "；".join(f"{member['id']}={member['name']}（{member['role']}）" for member in active)
         prompt = (
             f"你正在本群担任中控。根据用户消息选择最多 {limit} 位成员：{text}\n候选：{roster}\n"
-            '只返回 JSON，例如 {"agent_ids":["design","write"]}；只能使用候选 ID。'
+            '只返回 JSON，例如 {"agent_ids":["image","video"]}；只能使用候选 ID。'
         )
         selection = await self.agent_runtime.respond(self.profile(), history + [{"from": "me", "text": prompt}],
                                                      ScopeKey("group", group_id))

@@ -11,7 +11,7 @@ from futurework.api.app import create_app
 from futurework.config import load_config
 from futurework.contexts.store import MemoryStore
 from futurework.contexts.types import ScopeKey
-from futurework.home import ensure_home
+from tests.support import sample_home
 from futurework.runtime.tool_approvals import ToolApprovalStore
 from futurework.runtime.tool_dispatch import ToolRegistry, ToolResult
 from futurework.runtime.tool_execution import ToolCall, ToolExecutionLayer
@@ -22,7 +22,7 @@ from uuid import uuid4
 
 
 def _layer(tmp_path, name="read", approval_store=None, require_approval=True):
-    home = ensure_home(tmp_path / "home")
+    home = sample_home(tmp_path / "home")
     config = load_config(home)
     config["tool_execution"]["base_backoff_seconds"] = 0.001
     config["tool_execution"]["max_backoff_seconds"] = 0.001
@@ -141,7 +141,7 @@ def test_real_web_handler_retries_429_then_returns_page(tmp_path, monkeypatch):
 
 
 def test_call_approval_uses_existing_inbox_and_never_mutates_agent_config(tmp_path):
-    home = ensure_home(tmp_path / "home")
+    home = sample_home(tmp_path / "home")
     app = create_app(home)
     client = TestClient(app)
     config = app.state.config
@@ -222,7 +222,7 @@ def test_approval_does_not_restore_a_revoked_grant(tmp_path):
 
 
 def test_config_cannot_make_write_automatically_replayable(tmp_path):
-    home = ensure_home(tmp_path / "home")
+    home = sample_home(tmp_path / "home")
     path = home / "tools.toml"
     data = path.read_text(encoding="utf-8")
     path.write_text(data.replace('retry_read_tools = ["read",', 'retry_read_tools = ["write", "read",'), encoding="utf-8")
@@ -231,7 +231,7 @@ def test_config_cannot_make_write_automatically_replayable(tmp_path):
 
 
 def test_api_waits_for_exact_tool_approval_before_writing(tmp_path, monkeypatch):
-    home = ensure_home(tmp_path / "home")
+    home = sample_home(tmp_path / "home")
     friend = home / "agents" / "research.toml"
     friend.write_text(friend.read_text().replace('"skill_load"]', '"skill_load", "write"]'), encoding="utf-8")
 

@@ -10,13 +10,13 @@ from fastapi.testclient import TestClient
 
 from futurework.api.app import create_app
 from futurework.config import load_config
-from futurework.home import ensure_home
+from tests.support import sample_home
 from futurework.abilities.tools.web_fetch import handler as web_fetch_handler
 from futurework.runtime.tool_dispatch import ToolRequest, execute, execute_async
 
 
 def test_file_write_edit_read_and_search_are_real(tmp_path):
-    config = load_config(ensure_home(tmp_path / "home"))
+    config = load_config(sample_home(tmp_path / "home"))
     grants = ["write", "edit", "read", "glob", "grep"]
     run = lambda name, args: execute(ToolRequest("code", name, args), grants, config)
     assert run("write", {"file_path": "notes/today.txt", "content": "first line\nsecond line"}).success
@@ -30,7 +30,7 @@ def test_file_write_edit_read_and_search_are_real(tmp_path):
 
 
 def test_skill_load_requires_agent_enablement(tmp_path):
-    home = ensure_home(tmp_path / "home")
+    home = sample_home(tmp_path / "home")
     skill = home / "skills" / "outline"
     skill.mkdir()
     (skill / "SKILL.md").write_text("先写提纲", encoding="utf-8")
@@ -43,7 +43,7 @@ def test_skill_load_requires_agent_enablement(tmp_path):
 
 
 def test_web_fetch_and_markdown_write(tmp_path, monkeypatch):
-    config = load_config(ensure_home(tmp_path / "home"))
+    config = load_config(sample_home(tmp_path / "home"))
     assert not asyncio.run(web_fetch_handler.public_url("http://127.0.0.1/private"))
 
     async def public(url):
@@ -65,7 +65,7 @@ def test_web_fetch_and_markdown_write(tmp_path, monkeypatch):
 
 
 def test_web_redirect_to_private_address_is_blocked(tmp_path, monkeypatch):
-    config = load_config(ensure_home(tmp_path / "home"))
+    config = load_config(sample_home(tmp_path / "home"))
 
     async def public(url):
         return not url.startswith("http://127.0.0.1")
@@ -81,7 +81,7 @@ def test_web_redirect_to_private_address_is_blocked(tmp_path, monkeypatch):
 
 
 def test_shell_requires_both_grant_and_explicit_config(tmp_path):
-    config = load_config(ensure_home(tmp_path / "home"))
+    config = load_config(sample_home(tmp_path / "home"))
     call = ToolRequest("code", "bash", {"command": "printf hello"})
     assert not asyncio.run(execute_async(call, ["bash"], config)).success
     config["tool_runtime"]["allow_shell"] = True
@@ -91,7 +91,7 @@ def test_shell_requires_both_grant_and_explicit_config(tmp_path):
 
 
 def test_ui_only_lists_implemented_tools(tmp_path):
-    client = TestClient(create_app(ensure_home(tmp_path / "home")))
+    client = TestClient(create_app(sample_home(tmp_path / "home")))
     tools = client.get("/api/v1/bootstrap").json()["tools"]
     assert {"read", "write", "edit", "bash", "web_fetch"}.issubset(tools)
     assert "代码执行" not in tools

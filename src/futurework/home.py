@@ -2,6 +2,7 @@
 
 import os
 import shutil
+import tomlkit
 from importlib.resources import files
 from pathlib import Path
 
@@ -58,6 +59,22 @@ def ensure_home(override: str | Path | None = None) -> Path:
         target = home / source.name
         if not target.exists():
             target.write_bytes(source.read_bytes())
+    assistant_file = home / "agents" / "assistant.toml"
+    if assistant_file.is_file() and not any((home / root / "dynamic_plan" / "SKILL.md").is_file()
+                                            for root in ("skills", "abilities/skills")):
+        assistant_doc = tomlkit.parse(assistant_file.read_text(encoding="utf-8"))
+        skills = list(assistant_doc.get("extensions", {}).get("skills", []))
+        if "dynamic_plan" in skills:
+            skills = [item for item in skills if item != "dynamic_plan"]
+            if "skill-creator" not in skills:
+                skills.append("skill-creator")
+            assistant_doc["extensions"]["skills"] = skills
+            tools = list(assistant_doc.get("tools", []))
+            if "skill_create" not in tools:
+                tools.append("skill_create")
+                assistant_doc["tools"] = tools
+            from futurework.abilities.tools.management import atomic_text
+            atomic_text(assistant_file, tomlkit.dumps(assistant_doc))
     user_profile = home / "user.md"
     user_profile.touch(exist_ok=True)
     for category, source_category in (("agents", "friends"), ("teams", "teams")):

@@ -23,6 +23,11 @@ class AssistantRuntime:
 
     async def classify(self, text: str, history: list[dict]) -> str:
         """Return chat or task; bound the classifier to the assistant conversation."""
+        lowered = text.casefold()
+        routing = self.config["assistant_routing"]
+        if (any(term.casefold() in lowered for term in routing["skill_terms"]) and
+                any(term.casefold() in lowered for term in routing["skill_creation_terms"])):
+            return "chat"
         instruction = (
             "判断用户最新消息是普通聊天还是希望你分派 Agent 完成交付任务。"
             "闲聊、问候、解释性问题返回 CHAT；需要产出、调查、设计、编码、整理或计划的请求返回 TASK。"

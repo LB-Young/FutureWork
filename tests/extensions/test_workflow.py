@@ -19,8 +19,8 @@ def test_builtin_workflow_runs_agents_in_order(tmp_path):
         return f"{agent_id} result"
     result = asyncio.run(runner.run("product_launch", "新产品", execute))
     assert result["status"] == "completed"
-    assert [call[0] for call in calls] == ["research", "design"]
-    assert "research result" in calls[1][1]
+    assert [call[0] for call in calls] == ["image", "video"]
+    assert "image result" in calls[1][1]
     saved = tmp_path / "data" / "workflows" / f"{result['run_id']}.json"
     assert json.loads(saved.read_text())["status"] == "completed"
 
@@ -45,4 +45,4 @@ def test_workflow_api_runs_with_agent_runtime(tmp_path):
         response = client.post("/api/v1/workflows/product_launch/runs", json={"input": "测试发布"})
         assert response.status_code == 201
         assert response.json()["status"] == "completed"
-        assert len(client.get("/api/v1/conversations/research/messages").json()) >= 2
+        assert len(client.get("/api/v1/conversations/image/messages").json()) >= 2

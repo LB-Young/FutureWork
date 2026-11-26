@@ -1,0 +1,7 @@
+# 为用户创建 Skill；工具调用需要审批。
+schema_version = 1
+id = "skill_create"
+version = "0.1.0"
+kind = "tool"
+executor = "futurework.abilities.tools.skill_create.handler:run"
+enabled = true

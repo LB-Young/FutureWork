@@ -1,8 +1,8 @@
 # FutureWork 工程目录设计
 
-状态：目标架构与首个可运行版本。当前开发分支已接通用户目录配置、SQLite 消息和任务、多平台文本模型网关、小未分派、Agent 私聊、两种群聊模式、显式启用的 Skill 文本加载、分层记忆检索、长上下文压缩，以及计算、工作区文件操作、公共网页抓取和受限命令执行等通用工具。浏览器自动化、BKN、LSP、Workflow、MCP 仍属于后续阶段。此前的实验性实现保留在 `feat/user-home-package` 分支供参考。
+状态：目标架构与当前可运行版本。开发分支已接通用户目录配置、SQLite 消息和任务、多平台模型网关、小未分派、Agent 私聊、两种群聊模式、显式启用的 Skill 文本加载、分层记忆检索、长上下文压缩、通用工具、媒体能力、声明式 Workflow 和本机 MCP stdio 客户端。浏览器自动化、BKN、LSP 仍属于后续阶段。
 
-参考 Bamboo 后，当前对话执行入口先将请求转换为 `RunParams`，再由纯对象工厂创建类型化 `Task`，由 `TaskRuntime` 分流执行；具体 Agent 执行会把数据库/TOML 记录转换为 `AgentRun` 对象。模型网关使用 `ModelRequest` 与 `ModelResult`，工具调度使用 `ToolRequest` 与 `ToolResult`。这些对象跨运行层传递，配置文件和 HTTP/SQLite 边界仍用原生映射。新用户目录预置 DeepSeek、Kimi、MiniMax、MiMo、GPT、Claude、阿里云千问、智谱、OpenRouter、Ollama、vLLM，以及 Bamboo 风格公司 HTTP 代理的文本模型别名。图像/视频模型、其他任意自定义 HTTP 协议及 Bamboo 的其他默认工具尚未实现，不能仅凭配置项认为可用。
+参考 Bamboo 后，当前对话执行入口先将请求转换为 `RunParams`，再由对象工厂创建类型化 `Task`，由 `TaskRuntime` 分流执行；具体 Agent 执行会把数据库/TOML 记录转换为 `AgentRun` 对象。模型网关使用 `ModelRequest` 与 `ModelResult`，工具调度使用 `ToolRequest` 与 `ToolResult`。这些对象跨运行层传递，配置文件和 HTTP/SQLite 边界仍用原生映射。新用户目录预置主流云平台、本地模型和 Bamboo 风格公司 HTTP 代理的模型别名，并提供图片、视频处理协议。供应商模型名和账号权限仍需用户核实。
 
 ## 1. 核心原则
 
@@ -21,7 +21,7 @@
 
 `pip install -e .` 负责安装包和命令入口。**首次执行 `futurework init` 或 `futurework serve` 时自动创建 `~/.FutureWork/`**；`serve` 内部先执行幂等初始化，再加载配置。这样普通安装、可编辑安装和升级都遵循相同规则，安装器不会在构建阶段改写用户目录。`futurework init` 用于希望启动前先检查或手工编辑配置的用户；`futurework paths` 显示实际路径。用 `FUTUREWORK_HOME` 或 `--home` 指定另一目录时，初始化和读取都只作用于该目录。
 
-当前实现已经把包内占位的 `builtin/` 更名为 `abilities/`，包含 `tools`、`skills`、`mcp`、`workflows`、`friends`、`teams` 六类。首次初始化会补齐内置好友和群的 TOML：小未、小T、小V及多媒体群；旧 `~/.futurework` 存在且新目录缺失时先复制，再补齐缺失文件。用户侧也创建 `abilities/` 同样的六类目录，新增好友/群配置参与启动加载，Skill 优先从用户能力目录读取。`user.md` 初始为空，所有 Agent 提示词读取至多 500 字；模型可通过受限工具追加明确的用户事实。动态计划 Skill 为小未提供步骤与验收规则；定时任务保存在 `data/schedules/`，服务运行时轮询。图片好友已接通图片上传、视觉模型和媒体工具；视频好友已接通文生视频、关键帧理解和本地裁剪缩放工具。声明式 Agent Workflow 和本机 MCP stdio 工具已接入，权限仍由好友配置和工具审批层控制。
+当前实现将内置能力统一放在 `abilities/`，包含 `tools`、`skills`、`mcp`、`workflows`、`friends`、`teams` 六类。全新用户目录仅预置小未、小T、小V和媒体群；旧 `~/.futurework` 存在且新目录缺失时先复制，再补齐缺失文件。用户侧也创建 `abilities/` 同样的六类目录，新增好友/群配置参与启动加载。**唯一内置 Skill 是 `skill-creator`**，默认加载到小未，调用 `skill_create` 时仍需审批；动态计划由 `plan_update` 和 `plan_check` 工具承担。`user.md` 初始为空，所有 Agent 提示词读取至多 500 字；模型可通过受限工具追加明确的用户事实。定时任务保存在 `data/schedules/`，服务运行时轮询。图片好友已接通图片上传、视觉模型和媒体工具；视频好友已接通文生视频、关键帧理解和本地裁剪缩放工具。声明式 Agent Workflow 和本机 MCP stdio 工具已接入，权限仍由好友配置和工具审批层控制。
 
 首次初始化只复制缺失的内置示例，不覆盖用户已有 TOML、Skill、Workflow、MCP 或记忆。旧版本升级不自动重置用户配置；需要迁移时先备份、校验 schema，再原子写入。用户目录权限默认仅当前用户可读写。初始化失败时给出具体文件路径和原因，不允许带着半套配置启动。
 
@@ -89,15 +89,10 @@ FutureWork/
 │   ├── extensions.toml              # 扩展来源、安装目录、信任策略和资源限额
 │   ├── agents/
 │   │   ├── assistant.toml           # 小未；特殊 Agent，仍遵循同一配置 schema
-│   │   ├── research.toml            # 知知
-│   │   ├── design.toml              # 小绘
-│   │   ├── code.toml                # 阿码
-│   │   ├── write.toml               # 言言
-│   │   └── plan.toml                # 程程
+│   │   ├── image.toml               # 小T
+│   │   └── video.toml               # 小V
 │   ├── teams/
-│   │   ├── launch.toml              # 产品发布小组
-│   │   ├── weekly.toml              # 每周进展同步
-│   │   └── ideas.toml               # 灵感碰撞室
+│   │   └── multimedia.toml          # 媒体群
 │   └── prompts/
 │       ├── assistant.md
 │       └── agents/                  # 可选长提示词；由 Agent TOML 显式引用
@@ -439,7 +434,7 @@ supports_streaming = true
 
 `runtime.toml` 统一定义最大循环次数、超时、重试、并发、token/费用硬上限和 checkpoint 周期；Agent TOML、群 TOML 只能在硬上限内收紧。`RunSpec` 固定 `agent_config_version?`、`group_config_version?`、`scope_key`、`context_cursor`、`task_id?` 和权限快照。权限变化只影响新运行；已暂停运行恢复时仍需重新检查敏感工具授权和审批有效期。
 
-**当前实现范围：** Team TOML 的 `mode` 决定 Swarm 或小未中控的单轮执行；模型网关支持 OpenAI 兼容文本接口和 Anthropic Messages 文本接口，默认别名指向 DeepSeek。通用工具调用、分层记忆检索、动态计划工具、用户画像和定时任务已经接通。完整多轮群计划、可恢复 checkpoint、独立的群成员子执行记录及媒体执行器仍待实现。
+**当前实现范围：** Team TOML 的 `mode` 决定 Swarm 或小未中控的单轮执行；模型网关支持 OpenAI 兼容接口、Anthropic Messages、阿里云异步媒体和 OpenRouter 图片接口，默认文本别名指向 DeepSeek。通用工具调用、媒体处理、分层记忆检索、动态计划工具、用户画像、定时任务、声明式 Workflow 和 MCP stdio 已接通。完整多轮群计划和独立的群成员子执行记录仍待实现。
 
 ### 3.5 Tool、Skill、MCP 与 Workflow 扩展目录
 
@@ -460,7 +455,7 @@ supports_streaming = true
 
 **三种 Runtime 的用法：** `AssistantRuntime` 可提议安装 Skill/MCP/Workflow，并按获准配置调用规划类 Skill 和 Workflow；`DirectChatRuntime` 只解析该好友配置中启用的扩展；`GroupChatRuntime` 解析群级 Workflow/共享 Skill，再按成员各自权限解析 Tool/MCP。群配置的允许列表是上限，不会把某成员缺少的权限补给他。Workflow 步骤通过三种 Runtime 或任务 worker 调用 `AgentExecutor`，所有外部副作用均需对应审批。
 
-第一批内置扩展建议保持小而可验证：Tool 提供计算器与受控网页搜索；Skill 提供任务拆解、研究简报、文案审校；Workflow 提供每周进展汇总和产品发布准备；MCP 先提供连接模板与客户端适配，实际外部服务器由用户连接后启用。每个内置包仍有独立 manifest、版本和测试，不把全部实现塞进一个 `tools.py`。
+内置 Tool 提供计算器、文件操作、媒体处理、记忆检索、动态计划和 Skill 创建等能力；内置 Skill 仅保留 `skill-creator`。其他 Skill 由用户创建或安装，并在 Agent 配置中显式启用。内置 Workflow 的产品发布示例只引用小T和小V；MCP 先提供连接模板与客户端适配，实际外部服务器由用户连接后启用。每个内置包仍有独立 manifest、版本和测试。
 
 Workflow 使用声明式 DAG，例如：
 

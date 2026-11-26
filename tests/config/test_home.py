@@ -3,12 +3,13 @@
 from futurework.bootstrap import validate_home
 from futurework.api.app import create_app
 from futurework.home import DIRECTORIES, ensure_home
+from tests.support import sample_home
 from fastapi.testclient import TestClient
 import pytest
 
 
 def test_home_is_initialized_and_manual_config_survives(tmp_path):
-    home = ensure_home(tmp_path / "custom-home")
+    home = sample_home(tmp_path / "custom-home")
     assert all((home / relative / "README.md").is_file() for relative in DIRECTORIES)
     assert "用户配置和运行数据" in (home / "README.md").read_text()
     assert (home / "agents" / "assistant.toml").is_file()
@@ -28,6 +29,18 @@ def test_api_shell_reads_the_selected_home(tmp_path):
     home = ensure_home(tmp_path / "api-home")
     response = TestClient(create_app(home)).get("/api/v1/health")
     assert response.json() == {"status": "ok", "model_provider": "registry"}
+
+
+def test_old_assistant_skill_reference_is_migrated_without_replacing_custom_tools(tmp_path):
+    home = ensure_home(tmp_path / "migration-home")
+    assistant = home / "agents" / "assistant.toml"
+    old = assistant.read_text().replace('"skill-creator"', '"dynamic_plan"').replace('"skill_create", ', '')
+    assistant.write_text(old)
+    ensure_home(home)
+    updated = assistant.read_text()
+    assert '"skill-creator"' in updated and '"skill_create"' in updated
+    assert '"dynamic_plan"' not in updated
+    assert validate_home(home)["agents"]["assistant"]["extensions"]["skills"] == ["skill-creator"]
 
 
 def test_lan_local_model_requires_explicit_http_opt_in(tmp_path):

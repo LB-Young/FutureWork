@@ -5,7 +5,7 @@ from uuid import uuid4
 from fastapi.testclient import TestClient
 
 from futurework.api.app import create_app
-from futurework.home import ensure_home
+from tests.support import sample_home
 from futurework.runtime.run_params import RunParams
 from futurework.runtime.task_factory import TaskFactory, TaskKind
 
@@ -41,7 +41,7 @@ def test_duplicate_assistant_request_does_not_reclassify_or_reexecute(tmp_path, 
 
     monkeypatch.setattr("futurework.runtime.assistant_runtime.AssistantRuntime.classify", classify)
     monkeypatch.setattr("futurework.model.AgentRuntime.respond", respond)
-    client = TestClient(create_app(ensure_home(tmp_path / "home")))
+    client = TestClient(create_app(sample_home(tmp_path / "home")))
     payload = {"client_message_id": str(uuid4()), "body": "你好"}
     first = client.post("/api/v1/conversations/assistant/messages", json=payload)
     second = client.post("/api/v1/conversations/assistant/messages", json=payload)
@@ -64,7 +64,7 @@ def test_duplicate_delegation_reuses_persisted_task(tmp_path, monkeypatch):
 
     monkeypatch.setattr("futurework.runtime.assistant_runtime.AssistantRuntime.classify", classify)
     monkeypatch.setattr("futurework.model.AgentRuntime.respond", respond)
-    client = TestClient(create_app(ensure_home(tmp_path / "home")))
+    client = TestClient(create_app(sample_home(tmp_path / "home")))
     payload = {"client_message_id": str(uuid4()), "body": "请做竞品分析"}
     first = client.post("/api/v1/conversations/assistant/messages", json=payload)
     second = client.post("/api/v1/conversations/assistant/messages", json=payload)

@@ -44,8 +44,6 @@ class AgentRuntime:
         if memory:
             system += f"\n以下是可供当前会话使用的长期记忆和人物/群聊介绍：\n{memory}"
         enabled = list(self.config["agent_extensions"].get(run.agent_id, {}).get("skills", []))
-        if run.agent_id == "assistant" and "dynamic_plan" not in enabled:
-            enabled.append("dynamic_plan")
         if enabled:
             instructions = load_skills(self.config["home"], enabled, self.config["skill_policy"].get("max_skill_chars", 12000))
             system += f"\n以下 Skill 只提供方法说明，不授予工具或数据权限：\n{instructions}"

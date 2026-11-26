@@ -9,7 +9,7 @@ from futurework.config import load_config
 from futurework.contexts.retrieval import MemoryRetriever
 from futurework.contexts.store import MemoryStore
 from futurework.contexts.types import ScopeKey
-from futurework.home import ensure_home
+from tests.support import sample_home
 from futurework.runtime.tool_dispatch import ToolRegistry
 
 
@@ -21,7 +21,7 @@ def _message(path, scope, message_id, speaker, text):
 
 
 def test_private_experience_precedes_jsonl_and_falls_back_when_absent(tmp_path):
-    home = ensure_home(tmp_path / "home")
+    home = sample_home(tmp_path / "home")
     store = MemoryStore(home, load_config(home)["memory"])
     directory = store.directory(ScopeKey("agent", "research"))
     (directory / "experiences.md").write_text("# 经验\n\n研究结论：保留证据来源。\n<!-- source: experience-1 -->\n", encoding="utf-8")
@@ -39,7 +39,7 @@ def test_private_experience_precedes_jsonl_and_falls_back_when_absent(tmp_path):
 
 
 def test_group_member_experience_then_group_experience_then_group_jsonl(tmp_path):
-    home = ensure_home(tmp_path / "home")
+    home = sample_home(tmp_path / "home")
     store = MemoryStore(home, load_config(home)["memory"])
     scope = ScopeKey("group", "launch")
     root = store.directory(scope)
@@ -62,7 +62,7 @@ def test_group_member_experience_then_group_experience_then_group_jsonl(tmp_path
 
 
 def test_memory_tool_uses_bound_scope_without_agent_grant(tmp_path):
-    home = ensure_home(tmp_path / "home")
+    home = sample_home(tmp_path / "home")
     config = load_config(home)
     store = MemoryStore(home, config["memory"])
     root = store.directory(ScopeKey("agent", "research"))

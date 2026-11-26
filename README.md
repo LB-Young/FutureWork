@@ -2,7 +2,7 @@
 
 FutureWork 是一个可以在本机安装和运行的 Agent 团队应用。界面采用好友、群聊和消息收件箱的组织方式：你与个人助理「小未」交谈，小未把任务分给擅长对应能力的 Agent 好友；好友之间也可以组成群聊。除了你，好友和群成员都是 Agent。
 
-本项目仍在开发中。当前版本已经有可运行的网页、Python API、SQLite 持久化、多平台文本模型调用、基础工具调用和两种群聊模式。文档中的“目标架构”包含尚未完成的能力；使用前请先阅读下文的[当前能力与边界](#当前能力与边界)。
+本项目仍在开发中。当前版本已经有可运行的网页、Python API、SQLite 持久化、多平台模型调用、基础工具调用和两种群聊模式。文档中的“目标架构”包含尚未完成的能力；使用前请先阅读下文的[当前能力与边界](#当前能力与边界)。
 
 ## 目录导航
 
@@ -24,6 +24,7 @@ FutureWork 是一个可以在本机安装和运行的 Agent 团队应用。界�
 | 对话执行入口 | HTTP 消息先归一化为 `RunParams`，再由 `TaskFactory` 创建五种类型之一的 `Task`；`TaskRuntime` 按类型执行，重复消息 ID 不再重复分类或执行。 |
 | 对象调用链 | `TaskRuntime` 持有助理、私聊、群聊 Runtime；`AgentRuntime` 持有模型网关，单次运行创建授权工具注册表；API 持有消息、Agent 和群聊服务对象。 |
 | Agent 好友 | 每位好友由独立 TOML 定义，拥有自己的模型、能力、工具授权和私聊历史。 |
+| 初始成员 | 全新用户目录仅预置小未、小T、小V和一个「媒体群」；其他好友与群聊由用户创建或由小未按任务需要创建。 |
 | 群聊 | `swarm` 模式由成员轮流响应；`controlled` 模式由小未选择成员，必要时汇总多人回复。群聊读取本群自己的历史。 |
 | 模型 | 支持 OpenAI 兼容文本接口、Anthropic Messages 接口，以及 Bamboo 风格的公司 HTTP 模型代理；预置多家云平台与本地部署示例。只有选中的模型才需要可用。 |
 | 工具 | 已接通计算、工作区文件读取/搜索/写入/编辑、Skill 读取、公共网页抓取与保存，以及需显式开启的命令执行；调用前复核该 Agent 的授权。 |
@@ -218,7 +219,7 @@ futurework serve
 | vLLM | `vllm_local` | 默认不需要 |
 | 公司 HTTP 代理 | `company_http_local` | `HTTP_PROVIDER_API_KEY`；地址由 `HTTP_PROVIDER_BASE_URL` 提供 |
 
-这些是**可编辑的示例别名**，不是对第三方账号权限或模型可用性的保证。供应商若调整模型名、端点或参数，请修改对应 TOML。可以自行新增符合 OpenAI Chat Completions 协议的平台；`adapter = "openai_chat"` 即可复用现有适配器。公司代理使用上文所述的独立 `http_provider` 格式；其他任意自定义 HTTP 格式仍不支持。请求的超时、重试、温度和默认输出长度由 `~/.FutureWork/app.toml` 的 `[model]` 管理；模型条目还可以单独设置 `temperature`、`max_output_tokens`。当前实现只有文本模型请求，图像/视频生成以及视觉输入不在此版本范围内。
+这些是**可编辑的示例别名**，不是对第三方账号权限或模型可用性的保证。供应商若调整模型名、端点或参数，请修改对应 TOML。可以自行新增符合 OpenAI Chat Completions 协议的平台；`adapter = "openai_chat"` 即可复用现有适配器。公司代理使用上文所述的独立 `http_provider` 格式；其他任意自定义 HTTP 格式仍不支持。请求的超时、重试、温度和默认输出长度由 `~/.FutureWork/app.toml` 的 `[model]` 管理；模型条目还可以单独设置 `temperature`、`max_output_tokens`。图片、视频和视觉模型的当前能力见下文媒体能力说明。
 
 ## Agent 好友和群聊
 
@@ -282,9 +283,9 @@ agent_id = "assistant"
 | `url_to_md` | 把公共网页可见文本保存为 Markdown | 仅保存至工作区；新增授权需要配置审批。 |
 | `bash` | 在工作区目录执行 POSIX shell 命令 | 需 Agent 授权且 `[tool_runtime] allow_shell = true`；限制超时和回传输出。**当前没有操作系统沙箱**，开启后命令仍可能访问工作区外的本机资源。 |
 
-默认工作区是 `~/.FutureWork/workspace/`。调整 `~/.FutureWork/app.toml` 的 `[tool_runtime] workspace` 可改变路径；同一配置表还控制工具轮数、每轮调用数、文件大小、网页大小、命令超时和输出长度。工具真正执行前会再次检查该 Agent 的 `tools` 授权。文件工具不能通过 `../` 或指向工作区外的符号链接读取外部文件。新建 Agent 和初始示例 Agent 默认拥有 `calculator`、`read`、`glob`、`grep`、`skill_load`；已有用户目录中的 Agent TOML 不会自动改写。
+默认工作区是 `~/.FutureWork/workspace/`。调整 `~/.FutureWork/app.toml` 的 `[tool_runtime] workspace` 可改变路径；同一配置表还控制工具轮数、每轮调用数、文件大小、网页大小、命令超时和输出长度。工具真正执行前会再次检查该 Agent 的 `tools` 授权。文件工具不能通过 `../` 或指向工作区外的符号链接读取外部文件。新建 Agent 的安全默认工具由 `app.toml [permissions] safe_default_tools` 控制；小未、小T、小V分别使用自己的 TOML 工具列表。已有用户目录中的自定义 Agent TOML 不会自动改写。
 
-页面为好友增加 `write`、`edit`、`web_fetch`、`url_to_md` 或 `bash` 等高风险工具授权时会产生**配置变更审批**，批准后写回该好友 TOML。模型实际调用工具时，执行层再次检查 Agent ID、会话作用域和授权；`tools.toml [execution] require_approval_for` 列出的工具会产生**单次调用审批**，显示工具名和具体参数。当前默认包含 `write`、`edit`、`bash`、`url_to_md`、`schedule_create`。用户在待审批区批准后，运行中的调用才继续；拒绝或超时不会执行。审批等待期间如果该 Agent 的授权被撤销，也不会执行。Agent 配置的 `approval = false` 可以跳过单次调用审批，但关闭它本身需要走配置变更审批。手工编辑用户自己的 Agent TOML 也可以改变授权，重启后生效。`bash` 还必须额外在 `app.toml` 的 `[tool_runtime]` 中手工开启：
+页面为好友增加 `write`、`edit`、`web_fetch`、`url_to_md` 或 `bash` 等高风险工具授权时会产生**配置变更审批**，批准后写回该好友 TOML。模型实际调用工具时，执行层再次检查 Agent ID、会话作用域和授权；`tools.toml [execution] require_approval_for` 列出的工具会产生**单次调用审批**，显示工具名和具体参数。当前默认包含 `write`、`edit`、`bash`、`url_to_md`、`schedule_create`、`skill_create`、媒体生成、视频编辑和 MCP 调用等。用户在待审批区批准后，运行中的调用才继续；拒绝或超时不会执行。审批等待期间如果该 Agent 的授权被撤销，也不会执行。Agent 配置的 `approval = false` 可以跳过单次调用审批，但关闭它本身需要走配置变更审批。手工编辑用户自己的 Agent TOML 也可以改变授权，重启后生效。`bash` 还必须额外在 `app.toml` 的 `[tool_runtime]` 中手工开启：
 
 ```toml
 [tool_runtime]
@@ -310,19 +311,19 @@ skills = ["技能ID"]
 
 MCP stdio 服务的定义放在 `~/.FutureWork/abilities/mcp/<服务ID>/manifest.toml`，设置 `id`、`enabled = true`、`command`、`args` 和可选的 `env = ["变量名"]`。在需要使用它的好友 TOML 的 `tools` 中显式加入 `mcp_list`、`mcp_call`，并在 `[extensions]` 中写 `mcp = ["服务ID"]`。模型先调用 `mcp_list` 获取服务公开的工具，再用 `mcp_call(server_id, tool_name, arguments)` 执行；调用前会验证服务属于该好友的启用列表，且工具确实在服务的 `tools/list` 中。两个调用默认都需单次人工审批，且不自动重试。服务进程的环境只带基础变量及 manifest 显式列出的变量，可从本机 Bamboo `.env` 同名变量读取；MCP 服务的启动、请求及结果大小受 `extensions.toml [mcp]` 控制。当前只支持本机 stdio 传输，不支持远程 HTTP MCP。
 
-Workflow 可以放在 `~/.FutureWork/abilities/workflows/<ID>/workflow.toml`，旧版 `workflows/<ID>/workflow.toml` 也可用。当前支持 `enabled = true` 的声明式 `agent_task` 步骤，每步必须有 `id`、`agent_id`、`prompt` 和 `depends_on`；提示词支持 `{{input}}` 和直接依赖步骤的 `{{steps.<ID>}}`。调用 `POST /api/v1/workflows/<ID>/runs`，JSON 正文为 `{"input":"用户需求"}`。系统按依赖顺序调用已配置的 Agent Runtime，运行结果逐步保存到 `data/workflows/<运行ID>.json`，Agent 对话也会记录指令和回复。内置 `product_launch` 演示调研后再制定发布方案。可调节步骤数和输入输出上限在 `extensions.toml [workflow]`。暂不支持任意脚本步骤、MCP 步骤或并行 DAG 执行；Workflow 的 Agent 工具调用仍经过原有授权和审批层。
+Workflow 可以放在 `~/.FutureWork/abilities/workflows/<ID>/workflow.toml`，旧版 `workflows/<ID>/workflow.toml` 也可用。当前支持 `enabled = true` 的声明式 `agent_task` 步骤，每步必须有 `id`、`agent_id`、`prompt` 和 `depends_on`；提示词支持 `{{input}}` 和直接依赖步骤的 `{{steps.<ID>}}`。调用 `POST /api/v1/workflows/<ID>/runs`，JSON 正文为 `{"input":"用户需求"}`。系统按依赖顺序调用已配置的 Agent Runtime，运行结果逐步保存到 `data/workflows/<运行ID>.json`，Agent 对话也会记录指令和回复。内置 `product_launch` 由小T制定主视觉方案，再由小V制定视频方案。可调节步骤数和输入输出上限在 `extensions.toml [workflow]`。暂不支持任意脚本步骤、MCP 步骤或并行 DAG 执行；Workflow 的 Agent 工具调用仍经过原有授权和审批层。
 
-### 内置能力、动态计划与用户画像
+### 内置能力、Skill 创建与用户画像
 
 包内 `src/futurework/abilities/` 统一存放六类内置资源：`tools/`、`skills/`、`mcp/`、`workflows/`、`friends/`、`teams/`。每个可用工具目录都有 `manifest.toml` 和真正执行的 `handler.py`，例如 `tools/read/handler.py` 读取工作区文件、`tools/grep/handler.py` 搜索内容、`tools/bash/handler.py` 执行受限命令、`tools/memory_search/handler.py` 执行分层记忆检索。网页抓取、网页转 Markdown、Skill 加载、计划更新/验收、定时任务创建/查询和用户画像追加也各有执行脚本；共享的路径约束与原子写入放在 `tools/common.py`，计划和定时任务持久化放在 `tools/management.py`、`tools/schedule.py`。`runtime/tool_dispatch.py` 负责工具 schema 和处理器分发；模型调用统一经过工具执行层。未实现的网页搜索占位工具已从内置工具目录移除。
 
-初始化会把包内 `friends/`、`teams/` 中缺失的 TOML 复制到用户 `agents/`、`teams/`，包括小未、小T、小V和“多媒体群”。已有同名配置不会覆盖。小未默认加载 `dynamic_plan` Skill；复杂任务先用 `plan_update` 保存每步行动与验收标准，执行后用 `plan_check` 记录通过/失败和证据，条件改变时保留已验收步骤并重写后续步骤。计划按作用域和执行者存在 `data/plans/`；`plan_check` 记录模型或工具给出的证据，当前不自动运行用户任意验收脚本。旧版小未配置也会在运行时补入此 Skill 和计划、定时工具。
+全新初始化仅复制 `assistant.toml`（小未）、`image.toml`（小T）、`video.toml`（小V）和 `multimedia.toml`（媒体群）。随包提供的 Skill **只有 `skill-creator`**，小未默认加载它；小未可在用户提出创建可复用技能时调用 `skill_create`，经单次审批后写入 `~/.FutureWork/abilities/skills/<ID>/`。创建后不会自动授予任何 Agent 使用权，仍需在该 Agent TOML 的 `[extensions] skills` 中启用。Skill 的触发边界、目录结构和验收步骤参考 Bamboo 的 skill-creator，并针对 FutureWork 的权限和用户目录调整。`skill_create` 的名称和内容长度上限由 `extensions.toml [skill_creator]` 控制；创建或改进 Skill 的请求由小未直接处理，识别词可在 `app.toml [assistant_routing]` 调整。动态计划现在是 `plan_update`、`plan_check` 两个内置工具，不再是随包 Skill；计划按作用域和执行者存在 `data/plans/`。旧版小未若仍只引用已移除的 `dynamic_plan`，初始化会把该引用迁移为 `skill-creator` 并加入创建工具；其他自定义 Skill 不会被删除。升级自旧版本时，用户目录里已有的研究、设计等 TOML 和历史记录也不会被自动删除；若希望界面只保留三位默认 Agent，请先核对其会话与记忆，再自行移走旧示例配置并重启。
 
 `user.md` 首次创建时为空。所有 Agent 的模型提示词都会读取其最多 500 字内容；模型可以调用 `user_profile_update` 追加用户明确表达的稳定信息和偏好，重复事实去重，超出上限拒绝写入。`context.toml [user_profile] max_chars` 可在 1～500 范围内调整。模型不支持工具调用时仍可读取画像，但不会自动更新。
 
 `schedule_create` 支持带时区的 ISO 时间和可选重复间隔，`schedule_list` 查询状态。定时任务保存在 `data/schedules/`，服务运行期间按 `app.toml [schedule] poll_seconds` 扫描，到期后作为小未会话请求执行；服务停止期间不会执行，重新启动后会处理逾期任务。重复间隔不能短于 `min_interval_seconds`。定时任务执行仍依赖已配置的模型。
 
-**媒体能力：** 小T默认使用文本模型调度 `image_analyze` 和 `media_generate`；前者把工作区图片或 HTTPS 图片传给配置的视觉模型，后者按 `image_generation`、`image_edit`、`video_generation` 选择媒体模型。小V默认可用 `media_generate` 文生视频、`video_analyze` 抽帧理解工作区视频、`video_edit` 用本机 FFmpeg 裁剪和缩放视频。多媒体群可由小未分派给这两个好友。网页输入框的 `＋` 可以上传 PNG、JPEG、WebP、GIF、MP4、MOV 或 WebM；上传后输入框会插入工作区相对路径。图片与视频最大体积、抽帧数、处理超时和 FFmpeg 程序路径由 `media.toml [media]` 控制。视频分析需要系统安装 FFmpeg 和 FFprobe；编辑结果存于用户工作区 `outputs/`。图片编辑的 `image_url` 当前要求提供媒体平台可访问的 URL；本地上传路径仅供图片理解工具读取。
+**媒体能力：** 小T默认使用文本模型调度 `image_analyze` 和 `media_generate`；前者把工作区图片或 HTTPS 图片传给配置的视觉模型，后者按 `image_generation`、`image_edit`、`video_generation` 选择媒体模型。小V默认可用 `media_generate` 文生视频、`video_analyze` 抽帧理解工作区视频、`video_edit` 用本机 FFmpeg 裁剪和缩放视频。媒体群可由小未分派给这两个好友。网页输入框的 `＋` 可以上传 PNG、JPEG、WebP、GIF、MP4、MOV 或 WebM；上传后输入框会插入工作区相对路径。图片与视频最大体积、抽帧数、处理超时和 FFmpeg 程序路径由 `media.toml [media]` 控制。视频分析需要系统安装 FFmpeg 和 FFprobe；编辑结果存于用户工作区 `outputs/`。图片编辑的 `image_url` 当前要求提供媒体平台可访问的 URL；本地上传路径仅供图片理解工具读取。
 
 `models.toml` 已包含 Bamboo 对应的阿里云万相文生图、图片编辑、文生视频、OpenRouter 图片模型和阿里云 Qwen-VL 视觉模型。`media.toml [media.aliases]` 按能力选择模型别名。阿里云媒体任务使用异步提交和限时轮询，返回任务 ID 与结果 URL；OpenRouter 图片接口返回的 `b64_json` 会保存到 `~/.FutureWork/data/media/`，并提供 `/api/v1/artifacts/media/<文件名>` 供本地页面预览。FFmpeg 编辑产物可从 `/api/v1/artifacts/outputs/<文件名>` 预览。云平台若返回 URL，当前直接显示 URL，不自动下载远程文件。轮询超时会返回 `PENDING` 和任务 ID；可以在平台侧继续查询。视频理解基于少量关键帧，不能理解完整音轨和逐帧动作；视频编辑当前仅支持本地裁剪和可选缩放，不提供生成式重绘。
 

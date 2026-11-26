@@ -25,6 +25,7 @@ from futurework.abilities.tools.read import handler as read_handler
 from futurework.abilities.tools.schedule_create import handler as schedule_create_handler
 from futurework.abilities.tools.schedule_list import handler as schedule_list_handler
 from futurework.abilities.tools.skill_load import handler as skill_handler
+from futurework.abilities.tools.skill_create import handler as skill_create_handler
 from futurework.abilities.tools.url_to_md import handler as url_to_md_handler
 from futurework.abilities.tools.user_profile_update import handler as profile_handler
 from futurework.abilities.tools.web_fetch import handler as web_fetch_handler
@@ -36,6 +37,9 @@ from futurework.extension_system.mcp_client import MCPClient
 
 
 SCHEMAS = {
+    "skill_create": ("Create a reusable Skill in the user's abilities directory; requires approval.",
+                     {"name": {"type": "string"}, "description": {"type": "string"},
+                      "instructions": {"type": "string"}}, ["name", "description", "instructions"]),
     "video_analyze": ("Analyze sampled frames of a workspace video with the vision model.",
                       {"source": {"type": "string"}, "prompt": {"type": "string"}}, ["source"]),
     "video_edit": ("Trim and optionally resize a workspace video into an MP4 file.",
@@ -178,6 +182,8 @@ class ToolRegistry:
                 content = handler.run(args, self.config)
             elif name == "skill_load":
                 content = skill_handler.run(args, self.config, self.agent_id)
+            elif name == "skill_create":
+                content = skill_create_handler.run(args, self.config)
             else:
                 return ToolResult("tool requires asynchronous dispatch", False)
             return ToolResult(content[:limit] or "(no result)")

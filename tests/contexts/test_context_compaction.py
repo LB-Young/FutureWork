@@ -7,7 +7,7 @@ from futurework.config import load_config
 from futurework.contexts.compactor import ContextCompactor
 from futurework.contexts.store import MemoryStore
 from futurework.contexts.types import ScopeKey
-from futurework.home import ensure_home
+from tests.support import sample_home
 from futurework.integrations.model_gateway.types import ModelRequest, ModelResult
 
 
@@ -26,7 +26,7 @@ class Gateway:
 
 
 def _setup(tmp_path, gateway):
-    home = ensure_home(tmp_path / "home")
+    home = sample_home(tmp_path / "home")
     config = load_config(home)
     config["models"]["models"]["default_fast"]["context_window"] = 1200
     config["compaction"].update(trigger_ratio=0.3, minimum_remaining_tokens=100,

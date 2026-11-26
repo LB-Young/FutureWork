@@ -1,35 +1,20 @@
 /* Static Agent Team interaction prototype. It uses local in-memory examples and does not call the Python API. */
 const agents = [
-  { id: 'research', name: '知知', role: '研究与洞察', icon: '知', color: '#e7e8fa', ink: '#7873ad', tools: ['网页搜索', '文件读取'], model: 'GPT-5.1', approval: true },
-  { id: 'design', name: '小绘', role: '产品与视觉设计', icon: '绘', color: '#fae7dd', ink: '#c28464', tools: ['文件读取', '图像生成'], model: 'Claude Sonnet 4.5', approval: true },
-  { id: 'code', name: '阿码', role: '开发与自动化', icon: '码', color: '#dcebea', ink: '#4e9c91', tools: ['文件读取', '代码执行'], model: 'GPT-5.1', approval: true },
-  { id: 'write', name: '言言', role: '内容与文案', icon: '言', color: '#f6e6ef', ink: '#ae7795', tools: ['网页搜索', '文件读取'], model: 'GPT-5.1', approval: true },
-  { id: 'plan', name: '程程', role: '项目与日程', icon: '程', color: '#e9eddd', ink: '#8a9d65', tools: ['日历访问', '文件读取'], model: 'Gemini 3 Pro', approval: true }
+  { id: 'image', name: '小T', role: '图片理解、生成与编辑', icon: 'T', color: '#fae7dd', ink: '#c28464', tools: ['文件读取', '图像生成'], model: 'DeepSeek Chat', approval: true },
+  { id: 'video', name: '小V', role: '视频理解、生成与编辑', icon: 'V', color: '#dcebea', ink: '#4e9c91', tools: ['文件读取', '视频生成'], model: 'DeepSeek Chat', approval: true }
 ];
 const groups = [
-  { id: 'launch', name: '产品发布小组', role: '小绘、言言、程程', icon: '发', color: '#e4ede7', ink: '#398769' },
-  { id: 'weekly', name: '每周进展同步', role: '知知、阿码、程程', icon: '周', color: '#e8eafa', ink: '#7c81b4' },
-  { id: 'ideas', name: '灵感碰撞室', role: '知知、小绘、言言', icon: '灵', color: '#f7eae0', ink: '#bd8660' }
+  { id: 'multimedia', name: '媒体群', role: '小未、小T、小V', icon: '媒', color: '#e4ede7', ink: '#398769' }
 ];
 const activity = [
-  { id: 'launch', kind: 'group', text: '小绘：主视觉方向已完成，正在等你确认选稿。', time: '刚刚', status: '待审批', approval: true, unread: true },
-  { id: 'research', kind: 'agent', text: '竞品调研已整理好 3 个关键发现，想和你同步。', time: '5 分钟前', status: '有新消息', unread: true },
-  { id: 'code', kind: 'agent', text: '自动化脚本已准备好，运行前需要你的授权。', time: '12 分钟前', status: '待审批', approval: true, unread: true },
-  { id: 'weekly', kind: 'group', text: '程程：本周进度汇总已更新，大家可以补充。', time: '25 分钟前', status: '3 条新消息', unread: true },
-  { id: 'write', kind: 'agent', text: '我写了两个版本的发布文案，等你来看看。', time: '1 小时前', status: '有新消息', unread: true },
-  { id: 'ideas', kind: 'group', text: '知知：关于下个版本，我有一个新想法。', time: '昨天', status: '1 条新消息', unread: false },
-  { id: 'design', kind: 'agent', text: '新版界面草图完成啦！你想先看整体布局还是配色方向？', time: '昨天', status: '已读', unread: false },
-  { id: 'plan', kind: 'agent', text: '这周的任务安排已经更新，我会继续跟进大家的进度。', time: '周五', status: '已读', unread: false }
+  { id: 'multimedia', kind: 'group', text: '小未：图片与视频方案等待你确认。', time: '刚刚', status: '待审批', approval: true, unread: true },
+  { id: 'image', kind: 'agent', text: '小T：主视觉草图已经准备好。', time: '5 分钟前', status: '有新消息', unread: true },
+  { id: 'video', kind: 'agent', text: '小V：视频方案已整理完成。', time: '12 分钟前', status: '有新消息', unread: true }
 ];
 const conversations = {
-  research: [{ from: 'them', text: '竞品调研已整理好 3 个关键发现，想和你同步。' }],
-  design: [{ from: 'them', text: '新版界面草图完成啦！你想先看整体布局还是配色方向？' }],
-  code: [{ from: 'them', text: '自动化脚本已准备好，运行前需要你的授权。', approval: true }],
-  write: [{ from: 'them', text: '我写了两个版本的发布文案，等你来看看。' }],
-  plan: [{ from: 'them', text: '这周的任务安排已经更新，我会继续跟进大家的进度。' }],
-  launch: [{ from: 'them', speaker: '小绘', text: '主视觉方向已完成，正在等你确认选稿。', approval: true }, { from: 'them', speaker: '言言', text: '发布文案的两个版本也准备好了。' }],
-  weekly: [{ from: 'them', speaker: '程程', text: '本周进度汇总已更新，大家可以补充。' }],
-  ideas: [{ from: 'them', speaker: '知知', text: '关于下个版本，我有一个新想法。' }]
+  image: [{ from: 'them', text: '主视觉草图已经准备好。' }],
+  video: [{ from: 'them', text: '视频方案已整理完成。' }],
+  multimedia: [{ from: 'them', speaker: '小未', text: '图片与视频方案等待你确认。', approval: true }, { from: 'them', speaker: '小T', text: '主视觉方向已经整理好。' }]
 };
 const assistantMessages = [];
 const toolOptions = ['网页搜索', '文件读取', '代码执行', '图像生成', '日历访问', '外部发送'];
@@ -45,7 +30,7 @@ const itemById = (id) => [...agents, ...groups].find((item) => item.id === id);
 
 function renderContacts() {
   $('#agentCount').textContent = String(agents.length).padStart(2, '0');
-  $('#teamCount').textContent = `${agents.length} 位 Agent 正在协作`;
+  $('#teamCount').textContent = `${agents.length + 1} 位 Agent 正在协作`;
   $('#agentList').innerHTML = agents.map((agent) => `<button class="contact-row ${selected === agent.id ? 'selected' : ''}" data-contact="${agent.id}">${avatar(agent)}<span class="contact-copy"><strong>${escapeHtml(agent.name)}</strong><small>${escapeHtml(agent.role)}</small></span><span class="tiny-dot"></span></button>`).join('');
   $('#groupList').innerHTML = groups.map((group) => `<button class="contact-row ${selected === group.id ? 'selected' : ''}" data-contact="${group.id}">${avatar(group)}<span class="contact-copy"><strong>${escapeHtml(group.name)}</strong><small>${escapeHtml(group.role)}</small></span></button>`).join('');
   document.querySelectorAll('[data-contact]').forEach((button) => button.addEventListener('click', () => selectConversation(button.dataset.contact)));
@@ -60,10 +45,10 @@ function renderChat() {
   $('#agentSettings').hidden = assistant || !agents.includes(item);
   $('#messageInput').placeholder = assistant ? '给小未发消息，或直接安排一个任务…' : `给${item.name}发消息…`;
   $('#suggestions').hidden = !assistant;
-  const welcome = assistant ? `<div class="day-marker">今天 · 你的团队已准备就绪</div><div class="welcome"><div class="avatar assistant-avatar">✦</div><div class="bubble"><p><strong>早上好，我是小未。✦</strong></p><p>你的个人助理，也是整个 Agent 团队的协调者。告诉我你想完成什么，我会找到合适的伙伴、拆解任务并跟进进展。</p><p>需要新能力时，我也能为你创建新的 Agent 好友。</p><div class="task-card"><span class="task-card-label">正在进行的任务</span><h4>新产品发布准备</h4><div class="task-people"><span class="mini-avatar" style="background:#fae7dd;color:#c28464">绘</span><span class="mini-avatar" style="background:#f6e6ef;color:#ae7795">言</span><span class="mini-avatar" style="background:#e9eddd;color:#8a9d65">程</span> 3 位 Agent 协作中</div><button id="openLaunch">查看协作群聊</button></div></div></div>` : '<div class="day-marker">今天 · 对话已连接</div>';
+  const welcome = assistant ? `<div class="day-marker">今天 · 你的团队已准备就绪</div><div class="welcome"><div class="avatar assistant-avatar">✦</div><div class="bubble"><p><strong>你好，我是小未。✦</strong></p><p>默认好友有小T和小V，媒体群由我协调。告诉我你想完成什么，我会拆解任务并找到合适的伙伴。</p><p>需要新能力时，我也能为你创建新的 Agent 好友。</p><div class="task-card"><span class="task-card-label">当前协作群聊</span><h4>媒体群</h4><div class="task-people"><span class="mini-avatar" style="background:#fae7dd;color:#c28464">T</span><span class="mini-avatar" style="background:#dcebea;color:#4e9c91">V</span> 小未、小T、小V</div><button id="openMultimedia">查看协作群聊</button></div></div></div>` : '<div class="day-marker">今天 · 对话已连接</div>';
   const messages = assistant ? assistantMessages : (conversations[selected] || []);
   $('#chatBody').innerHTML = welcome + messages.map((message) => `<div class="message-row ${message.from === 'me' ? 'mine' : ''}">${message.from === 'me' ? '' : `<div class="avatar ${assistant ? 'assistant-avatar' : ''}" style="${assistant ? '' : `background:${item.color};color:${item.ink}`}" >${assistant ? '✦' : escapeHtml(item.icon)}</div>`}<div><div class="message-meta">${message.from === 'me' ? '你' : escapeHtml(message.speaker || (assistant ? '小未' : item.name))} · 刚刚</div><div class="bubble">${escapeHtml(message.text)}${message.approval && !message.resolved ? `<div class="task-card"><span class="task-card-label">等待你的决定</span><h4>批准这项操作？</h4><button class="approve-action" data-id="${selected}">批准执行</button><button class="reject-action" data-id="${selected}" style="margin-left:15px;color:#a08373">暂不批准</button></div>` : ''}</div></div></div>`).join('');
-  $('#openLaunch')?.addEventListener('click', () => selectConversation('launch'));
+  $('#openMultimedia')?.addEventListener('click', () => selectConversation('multimedia'));
   document.querySelectorAll('.approve-action,.reject-action').forEach((button) => button.addEventListener('click', () => resolveApproval(button.dataset.id, button.classList.contains('approve-action'))));
   $('#chatBody').scrollTop = $('#chatBody').scrollHeight;
 }
@@ -132,7 +117,8 @@ function sendMessage(event) {
       activity.unshift({ id: 'analyst', kind: 'agent', text: conversations.analyst[0].text, time: '刚刚', status: '新成员', unread: true });
       reply = '我已将任务拆解，并为你创建了「数数」这位数据分析 Agent。已配置网页搜索和文件读取权限，关键操作仍需你审批。你可以在左侧好友列表找到她。';
       renderContacts(); renderActivity();
-    } else if (/发布|设计|文案/.test(text)) reply = '收到。我会让小绘负责设计、言言准备内容、程程跟进进度。你可以在「产品发布小组」查看协作过程，重要操作会先请你审批。';
+    } else if (/(skill|技能)/i.test(text) && /创建|制作|改进/.test(text)) reply = '我会先明确这个 Skill 的用途和触发条件，再整理可复用步骤。正式创建前需要你审批。';
+    else if (/图片|视频|媒体|发布/.test(text)) reply = '收到。我会在媒体群协调小T和小V处理图片与视频，关键操作会先请你审批。';
     else reply = '收到，我会先拆解任务，再分配给合适的 Agent。你可以随时在右侧查看最新进展和待审批事项。';
     assistantMessages.push({ from: 'them', text: reply });
   } else target.push({ from: 'them', text: '收到，我已经记下这项需求，会继续推进并同步进展。' });

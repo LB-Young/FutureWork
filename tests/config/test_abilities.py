@@ -1,7 +1,8 @@
-"""Verify installed abilities, dynamic plans, user profile, and durable schedules."""
+"""Verify minimal defaults, Skill creation, user profile, plans, and schedules."""
 
 import asyncio
 from datetime import datetime, timedelta, timezone
+from importlib.resources import files
 
 from futurework.abilities.tools.schedule import ScheduleStore
 from futurework.config import load_config
@@ -13,17 +14,26 @@ from futurework.runtime.tool_dispatch import ToolRegistry
 from futurework.runtime.agent_executor import AgentRuntime
 from futurework.integrations.model_gateway.types import ModelResult
 from futurework.algorithm import TaskPlanner
+from futurework.api.app import create_app
+from fastapi.testclient import TestClient
+from futurework.runtime.assistant_runtime import AssistantRuntime
 
 
 def test_new_home_installs_multimedia_and_user_ability_directories(tmp_path):
     home = ensure_home(tmp_path / "home")
     config = load_config(home)
-    assert {"image", "video"}.issubset({item["id"] for item in config["agents"]["seed"]})
-    assert (home / "teams" / "multimedia.toml").is_file()
+    assert {item["id"] for item in config["agents"]["seed"]} == {"image", "video"}
+    assert {path.stem for path in (home / "agents").glob("*.toml")} == {"assistant", "image", "video"}
+    assert {path.stem for path in (home / "teams").glob("*.toml")} == {"multimedia"}
+    bootstrap = TestClient(create_app(home)).get("/api/v1/bootstrap").json()
+    assert {agent["name"] for agent in bootstrap["agents"]} == {"小T", "小V"}
+    assert [group["name"] for group in bootstrap["groups"]] == ["媒体群"]
+    skill_root = files("futurework").joinpath("abilities", "skills")
+    assert {path.name for path in skill_root.iterdir() if path.joinpath("SKILL.md").is_file()} == {"skill-creator"}
     assert (home / "user.md").read_text(encoding="utf-8") == ""
     for name in ("tools", "skills", "mcp", "workflows", "friends", "teams"):
         assert (home / "abilities" / name).is_dir()
-    assert "dynamic_plan" in (home / "agents" / "assistant.toml").read_text()
+    assert "skill-creator" in (home / "agents" / "assistant.toml").read_text()
     agents = [{**item, "status": "active"} for item in config["agents"]["seed"]]
     assert any(item.agent_id == "image" for item in TaskPlanner(config).assign_steps("生成图片", agents))
     assert any(item.agent_id == "video" for item in TaskPlanner(config).assign_steps("生成视频", agents))
@@ -94,7 +104,7 @@ def test_user_friend_definition_and_profile_are_loaded(tmp_path):
     assert "助手" in store.prompt_context(ScopeKey("agent", "helper"), "helper")
 
 
-def test_every_agent_sees_user_profile_and_assistant_gets_dynamic_plan(tmp_path):
+def test_every_agent_sees_user_profile_and_assistant_gets_skill_creator(tmp_path):
     home = ensure_home(tmp_path / "home")
     (home / "user.md").write_text("- 偏好：中文简答\n", encoding="utf-8")
     config = load_config(home)
@@ -106,12 +116,20 @@ def test_every_agent_sees_user_profile_and_assistant_gets_dynamic_plan(tmp_path)
         async def generate(self, request):
             assert "中文简答" in request.messages[0]["content"]
             if "小未" in request.messages[0]["content"]:
-                assert "动态计划" in request.messages[0]["content"]
+                assert "创建 FutureWork Skill" in request.messages[0]["content"]
                 assert "plan_update" in {item["function"]["name"] for item in request.tools}
+                assert "skill_create" in {item["function"]["name"] for item in request.tools}
             return ModelResult(text="完成")
 
     runtime = AgentRuntime(config, model_gateway=Gateway())
-    for item_id in ("assistant", "research"):
-        agent = {"id": item_id, "name": "小未" if item_id == "assistant" else "知知",
-                 "role": "助理", "model": "default_fast", "tools": []}
+    for item_id in ("assistant", "image"):
+        agent = {"id": item_id, "name": "小未" if item_id == "assistant" else "小T",
+                 "role": "助理", "model": "default_fast", "tools": ["skill_create"] if item_id == "assistant" else []}
         assert asyncio.run(runtime.respond(agent, [{"from": "me", "text": "你好"}])) == "完成"
+
+
+def test_skill_creation_request_runs_in_assistant_scope(tmp_path):
+    """Skill authoring is handled by XiaoWei, which owns the creation tool."""
+    config = load_config(ensure_home(tmp_path / "home"))
+    runtime = AssistantRuntime(None, config, None, None)
+    assert asyncio.run(runtime.classify("帮我创建一个新的 Skill", [])) == "chat"

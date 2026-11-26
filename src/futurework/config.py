@@ -54,6 +54,11 @@ def load_config(home: Path) -> dict:
     config["skill_policy"] = raw["settings"]["extensions"]["policy"]
     with DEFAULT_EXTENSIONS.open("rb") as source:
         extension_defaults = tomllib.load(source)
+    config["skill_creator"] = _merge(extension_defaults["skill_creator"],
+                                    raw["settings"]["extensions"].get("skill_creator", {}))
+    if any(type(config["skill_creator"].get(name)) is not int or config["skill_creator"][name] <= 0 for name in
+           ("max_name_chars", "max_description_chars", "max_instructions_chars")):
+        raise ValueError("extensions.toml Skill creator limits must be positive integers")
     config["workflow"] = _merge(extension_defaults["workflow"], raw["settings"]["extensions"].get("workflow", {}))
     if any(type(config["workflow"].get(name)) is not int or config["workflow"][name] <= 0 for name in
            ("max_steps", "max_input_chars", "max_output_chars")):
@@ -114,6 +119,11 @@ def load_config(home: Path) -> dict:
     if any(type(config["worker"].get(name)) is not bool for name in
            ("recover_assigned_on_startup", "mark_interrupted_failed")):
         raise ValueError("app.toml worker recovery switches must be booleans")
+    if any(not isinstance(config["assistant_routing"].get(name), list) or
+           not config["assistant_routing"][name] or
+           any(not isinstance(term, str) or not term for term in config["assistant_routing"][name])
+           for name in ("skill_terms", "skill_creation_terms")):
+        raise ValueError("app.toml assistant skill routing terms are invalid")
     config["model"]["available_models"] = list(raw["models"]["models"])
     if config["model"]["default_model"] not in config["model"]["available_models"]:
         raise ValueError("app.toml default_model must name an alias in models.toml")

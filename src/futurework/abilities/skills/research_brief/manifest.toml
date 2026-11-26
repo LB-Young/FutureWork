@@ -1,6 +1,0 @@
-# Research brief Skill manifest; installation never grants tools by itself.
-schema_version = 1
-id = "research_brief"
-version = "0.1.0"
-kind = "skill"
-enabled = false
