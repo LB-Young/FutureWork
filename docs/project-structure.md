@@ -436,7 +436,128 @@ supports_streaming = true
 
 **当前实现范围：** Team TOML 的 `mode` 决定 Swarm 或小未中控的单轮执行；模型网关支持 OpenAI 兼容接口、Anthropic Messages、阿里云异步媒体和 OpenRouter 图片接口，默认文本别名指向 DeepSeek。通用工具调用、媒体处理、分层记忆检索、动态计划工具、用户画像、定时任务、声明式 Workflow 和 MCP stdio 已接通。完整多轮群计划和独立的群成员子执行记录仍待实现。
 
-### 3.5 Tool、Skill、MCP 与 Workflow 扩展目录
+### 3.5 多入口的统一执行链（目标设计）
+
+Bamboo 的 CLI、Web、API 和 pywebview 桌面 App 都将请求整理为 RunParams，再交给 TaskRuntime；桌面 App 通过本机 Python 桥接，不必启动 HTTP 服务。FutureWork 当前仅有 Web/FastAPI 消息入口，CLI 只有管理命令。未来增加桌面 App、版本化开放 API，CLI 聊天可随后增加。所有入口共用 TaskFactory、TaskRuntime、三种顶层 Runtime、AgentExecutor、上下文与审批；入口代码只处理身份、协议、附件和结果呈现。
+
+```text
+Web HTTP/SSE ───┐
+桌面 App 本机桥 ├─> InboundAdapter ─> RunParams ─> TaskIngress ─> TaskFactory ─> TaskRuntime
+开放 API HTTP ──┤                                              ├─> AssistantRuntime
+CLI（后续）──────┘                                              ├─> DirectChatRuntime
+                                                                └─> GroupChatRuntime
+EventStore/Outbox <─ RuntimeEvent <──────────────────────────────┘
+Web/App/API Presenter <─ 按权限读取事件、消息、审批和任务状态
+```
+
+现有 `RunParams(source, target, message, client_message_id)` 渐进扩展为稳定输入对象：`source` 为 `web | desktop | public_api | cli`，另有 `request_id`、`principal_id`、`workspace_id`、`target(kind,id)`、`message`、已入库的 `attachments`（对象 ID、类型、大小、哈希）、`reply_mode`、`trace_id`、`deadline`。平台用户/会话 ID 由入口认证后映射为内部 ID。客户端传来的 grants、本机路径、配置版本与 ScopeKey 不可信；权限、配置快照和上下文游标由服务端计算并固定在 RunSpec。现有 `from_http()` 可作兼容构造器，但 TaskFactory 不访问数据库、模型或平台协议。
+
+| 入口 | 入站适配 | 出站适配 |
+| --- | --- | --- |
+| Web | 浏览器会话认证、上传与请求归一化 | SSE/轮询展示文本、媒体、进度和审批 |
+| 桌面 App | 本机用户认证、pywebview 或等价 IPC 桥接 | 相同事件投影为窗口、通知与审批界面 |
+| 开放 API | Token/OAuth、scope、限流和版本化 JSON/上传 | JSON 应答或 SSE，稳定错误码与事件游标 |
+| CLI（后续） | 命令参数及本机身份转换 | 终端事件渲染与交互审批 |
+
+`TaskIngress.submit(params)` 依次执行：验证身份和目标访问 → 附件入库与校验 → 按 `(workspace_id, principal_id, client_message_id)` 做幂等接收 → 保存用户消息与提交事件 → 创建 Task/RunSpec → 按 Task.kind 分流。重复请求返回原 run/message/task ID；相同幂等键但目标或内容哈希不同返回冲突。只读查询、配置编辑和审批走独立应用服务，不伪装成 Agent Task。网络断开不取消后台任务，取消须显式调用。
+
+标准 `RuntimeEvent` 包含 event_id、sequence、run_id、conversation_id、scope_key、type、timestamp、payload、visibility；类型涵盖文本增量/完成、媒体、步骤、审批请求/结果、错误、取消和完成。持久化到事件表或 outbox 后分发，SSE 按 Last-Event-ID/游标重放，避免多进程下只依赖内存 EventBus。各 Presenter 仅转换输出格式与展示规则，不能修改权威消息。同步 API 等待至配置的上限，超时返回 202 和 run_id；后续用同一 run_id 查询或续订。跨 Web/App/API 查看同一会话需再次校验身份；审批绑定 approval_id、授权用户、配置版本和有效期，公开 API 默认不能自动批准。
+
+目标模块位于 `src/futurework/`：`adapters/inbound/{web,desktop,public_api,cli}.py`、`adapters/outbound/{web,desktop,public_api,cli}.py`、`adapters/desktop/bridge.py`、`services/task_ingress.py`、`runtime/events.py`、`persistence/event_store.py`。入口监听、鉴权、允许来源、请求/附件限额、同步等待、事件保留与重放上限在 `app.toml [entrypoints.*]`；运行预算在 `runtime.toml`。桌面桥只向当前用户开放；若采用 loopback HTTP，绑定 127.0.0.1 并校验随机令牌及 Origin。
+
+### 3.6 外部 Agent 好友的执行协议（目标设计）
+
+OpenClaw、Codex、自编 Agent 和垂直领域 Agent 都作为配置驱动的好友接入；默认初始化仍只有小未、小T、小V和媒体群。好友的身份、能力、权限和长期人物介绍仍放 `~/.FutureWork/agents/<id>.toml` 与同目录 `<id>.md`（用户 `abilities/friends/` 使用相同 schema）。外部 Agent 是执行后端，**不是模型 provider**；内置好友仍以 `execution.kind = "native"` 走现有 AgentRuntime/ModelGateway。三种顶层 Runtime 和各自 ScopeKey 不因后端不同而变化，小未可以按能力分派，群成员也可以使用外部后端。
+
+```text
+Assistant/Direct/Group Runtime -> AgentExecutor.run(AgentRunSpec)
+  -> ExecutionRegistry.resolve(execution.kind)
+       native     -> AgentRuntime -> ModelGateway/ToolExecutionLayer
+       codex_cli  -> 经版本探测的本机 Codex 适配器
+       openclaw   -> 经验证的 OpenClaw CLI 或本地 API 适配器
+       process    -> 通用 stdio JSONL/JSON-RPC 适配器
+       http       -> 通用 HTTP/SSE 适配器
+  -> ResultValidator -> MessageService/ContextStore -> RuntimeEvent
+```
+
+Python `AgentBackend` 协议统一为 `describe() -> CapabilityDescriptor`、`health() -> HealthState`、`run(AgentRequest) -> AsyncIterator[AgentEvent]`、`cancel(run_id)`。请求包含 run_id、幂等键、agent_id、task_kind、输入、按 ScopeKey 装配的有限上下文、获准产物引用、权限/工作区、预算和截止时间；不得传整个用户目录、其他会话历史、数据库句柄或未授权凭据。事件为 started、text_delta、artifact、approval_request、usage、completed、failed，带 run_id 与有序序号。结果包含文本或受限产物、错误类别、可选用量和外部调用 ID。只有适配器能上报并暂停每次工具调用时，才能接入 FutureWork 的逐工具 ToolExecutionLayer。
+
+Codex 好友配置意图（CLI 的具体命令和参数必须由适配器按已安装版本探测，以下字段不是 Codex 原生命令行参数）：
+
+```toml
+schema_version = 1
+id = "coder"
+name = "代码助手"
+kind = "friend"
+status = "active"
+[capabilities]
+"coding.implementation" = 0.95
+"coding.review" = 0.90
+[execution]
+kind = "codex_cli"
+profile = "local_coding"
+transport = "subprocess"
+[execution.permissions]
+workspaces = ["~/projects/approved-project"]
+network = "deny"
+credential_refs = []
+approval_mode = "task"
+```
+
+OpenClaw 好友仅固定 FutureWork 的配置接口，适配器在安装环境中验证可用传输，不假定 OpenClaw 必然支持某一 CLI 参数或工具审批协议：
+
+```toml
+schema_version = 1
+id = "openclaw_helper"
+name = "本机助理"
+kind = "friend"
+status = "active"
+[capabilities]
+"operations.assistance" = 0.80
+[execution]
+kind = "openclaw"
+profile = "local_openclaw"
+transport = "auto_verified"
+[execution.permissions]
+workspaces = []
+network = "deny"
+credential_refs = []
+approval_mode = "task"
+```
+
+自编/垂直 Agent 优先实现通用 `process` 或 `http` 协议，不为每个品牌重写核心 Runtime。HTTP 端点由固定引用解析并校验 allowlist，远端服务另需 TLS 和授权：
+
+```toml
+schema_version = 1
+id = "legal_research"
+name = "法务检索"
+kind = "friend"
+status = "active"
+[capabilities]
+"legal.research" = 0.90
+[execution]
+kind = "http"
+profile = "legal_local"
+endpoint_ref = "legal_research_endpoint"
+protocol = "futurework-agent-v1"
+[execution.permissions]
+workspaces = []
+network = "loopback_only"
+credential_refs = ["LEGAL_AGENT_TOKEN"]
+approval_mode = "task"
+```
+
+`~/.FutureWork/agent_backends.toml` 管理 profile、可执行文件绝对路径/版本约束、允许端点、环境变量白名单、启动参数模板、工作目录、输出和附件上限、并发、健康检查、超时、可重试错误类别；密钥仅存引用。全局硬上限在 app.toml，Agent TOML 只可收紧。安装探测不等于自动注册好友：用户显式导入后先 describe/health，展示真实文件/网络/凭据/审批权限，获准才写配置及初始化专属记忆；加入群仍走成员校验和授权。
+
+FutureWork 的 SQLite 时间线和分作用域 JSONL/Markdown 是权威记录；外部 Agent 内部历史仅是其实现状态。请求只带当前私聊、当前群或明确分享的任务材料；外部会话 ID 按 `(agent_id, scope_key)` 映射。不支持会话隔离的后端必须无状态运行或拒绝加入群。输出经 schema、大小、媒体类型、路径和敏感字段校验后才提交消息；失败时部分增量只留运行事件。
+
+权限模式分为 `controlled`（逐工具上报、暂停并交给 ToolExecutionLayer 审批）和 `task`（内部工具不可见，运行前按整项任务审批，并限制进程/容器、工作区挂载、网络和凭据）。TOML 声明 `network = "deny"` 不代表系统已经隔离；若宿主平台无法强制声明的边界，注册或启动必须拒绝，或展示实际可强制权限并要求按真实边界重新配置，不能靠提示词冒充隔离。子进程只用参数数组启动；记录执行文件版本/哈希、配置版本、请求与结果摘要和错误，日志脱敏。
+
+超时、取消、断连和崩溃映射为 retryable_transport、terminal_config、permission_denied、budget_exceeded、cancelled、external_failure。只有适配器保证幂等且确认无外部副作用才自动重试；否则标记 outcome_unknown，等待用户处理。取消先调用协议取消，宽限期后终止本地进程；远端无法确认取消时明确提示仍可能运行。群中一个成员失败只影响该成员本轮，由 Swarm/Controlled 策略处理。
+
+目标模块：`integrations/agent_backends/{base,registry,native,codex_cli,openclaw,process,http}.py`、`schemas/agent_backend.py`、`services/agent_registration.py`、`runtime/agent_executor.py`。旧 Agent 配置无 `[execution]` 时按 native 迁移并提示配置升级。实施先统一入口对象和持久事件，再验证 Web/API 跨端幂等与审批，接桌面桥；外部好友先做 process/http 契约、隔离、取消和群聊测试，再做 Codex/OpenClaw 版本探测适配。验收必须覆盖跨入口同消息只执行一次、断线续订、跨端审批归属、外部私聊不泄漏到群、权限不可强制时禁止启动，以及结果未知时不重试副作用。
+
+### 3.7 Tool、Skill、MCP 与 Workflow 扩展目录
 
 `extensions/abilities/` 放随应用发布且经过代码审查的内置扩展；`data/extensions/` 放用户后续安装的版本化扩展（本地开发路径，生产应为独立持久卷或扩展仓库）。两者由 `extension_system/registry.py` 统一索引，但**安装、启用、授予 Agent/群使用权**是三个独立动作。安装成功不等于自动进入任意 Agent 的上下文或获得工具权限。
 
