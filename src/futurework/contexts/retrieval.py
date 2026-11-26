@@ -12,6 +12,7 @@ from pathlib import Path
 
 from futurework.contexts.store import MemoryStore
 from futurework.contexts.types import ScopeKey
+from futurework.kinds import ASSISTANT, TEAM
 
 
 SOURCE_MARKER = re.compile(r"<!-- source: ([^>]+) -->")
@@ -68,14 +69,14 @@ class MemoryRetriever:
         limit = min(limit, self.settings["search_max_results"])
         if group_id:
             selected = ScopeKey("group", group_id)
-            own_group = scope.kind == "group" and scope.id == group_id
-            assistant_group = (scope.kind == "assistant" and actor_id == "assistant"
+            own_group = scope.kind == TEAM and scope.id == group_id
+            assistant_group = (scope.kind == ASSISTANT and actor_id == ASSISTANT
                                and self.store.profile_path(selected).with_suffix(".toml").is_file())
             if not (own_group or assistant_group):
                 raise PermissionError("group memory is outside the current scope")
             scope = selected
         root = self.store.directory(scope)
-        if scope.kind == "group":
+        if scope.kind == TEAM:
             targeted = sorted((root / "topics").glob(f"*/{actor_id}.md"))
             hits = self._search_md(query, scope, targeted, limit)
             if hits:

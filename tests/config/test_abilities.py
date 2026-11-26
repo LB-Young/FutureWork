@@ -16,17 +16,17 @@ from futurework.integrations.model_gateway.types import ModelResult
 from futurework.algorithm import TaskPlanner
 from futurework.api.app import create_app
 from fastapi.testclient import TestClient
-from futurework.runtime.assistant_runtime import AssistantRuntime
+from futurework.runtime.tool_dispatch import SCHEMAS
 
 
 def test_new_home_installs_multimedia_and_user_ability_directories(tmp_path):
     home = ensure_home(tmp_path / "home")
     config = load_config(home)
-    assert {item["id"] for item in config["agents"]["seed"]} == {"image", "video"}
-    assert {path.stem for path in (home / "agents").glob("*.toml")} == {"assistant", "image", "video"}
+    assert {item["id"] for item in config["agents"]["seed"]} == {"image", "video", "codex", "openclaw", "claude_code"}
+    assert {path.stem for path in (home / "agents").glob("*.toml")} == {"assistant", "image", "video", "codex", "openclaw", "claude_code"}
     assert {path.stem for path in (home / "teams").glob("*.toml")} == {"multimedia"}
     bootstrap = TestClient(create_app(home)).get("/api/v1/bootstrap").json()
-    assert {agent["name"] for agent in bootstrap["agents"]} == {"小T", "小V"}
+    assert {agent["name"] for agent in bootstrap["agents"]} == {"小T", "小V", "Codex", "OpenClaw", "Claude Code"}
     assert [group["name"] for group in bootstrap["groups"]] == ["媒体群"]
     skill_root = files("futurework").joinpath("abilities", "skills")
     assert {path.name for path in skill_root.iterdir() if path.joinpath("SKILL.md").is_file()} == {"skill-creator"}
@@ -129,7 +129,8 @@ def test_every_agent_sees_user_profile_and_assistant_gets_skill_creator(tmp_path
 
 
 def test_skill_creation_request_runs_in_assistant_scope(tmp_path):
-    """Skill authoring is handled by XiaoWei, which owns the creation tool."""
+    """XiaoWei owns both Skill creation and deliberate task delegation."""
     config = load_config(ensure_home(tmp_path / "home"))
-    runtime = AssistantRuntime(None, config, None, None)
-    assert asyncio.run(runtime.classify("帮我创建一个新的 Skill", [])) == "chat"
+    assert "skill_create" in config["assistant"]["tools"]
+    assert "delegate_task" in config["assistant"]["tools"]
+    assert "delegate_task" in SCHEMAS

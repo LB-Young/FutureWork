@@ -6,6 +6,7 @@ max_attempts = 2
 base_backoff_seconds = 0.25
 max_backoff_seconds = 2.0
 call_timeout_seconds = 30.0
+delegation_timeout_seconds = 600.0
 approval_wait_seconds = 300.0
 approval_poll_seconds = 0.5
 max_input_chars = 12000

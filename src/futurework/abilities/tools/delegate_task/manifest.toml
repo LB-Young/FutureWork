@@ -1,0 +1,7 @@
+# XiaoWei's explicit delegation tool executes only through its authorized Runtime.
+schema_version = 1
+id = "delegate_task"
+version = "0.1.0"
+kind = "tool"
+executor = "futurework.abilities.tools.delegate_task.handler:run"
+enabled = true

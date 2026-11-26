@@ -10,9 +10,15 @@ environment = ["PATH", "HOME", "LANG", "TMPDIR"]
 
 [profiles.codex_local]
 executable = "codex"
-sandbox = "read-only"
+model = "gpt-6.2-sol"
+sandbox = "workspace-write"
 environment = ["PATH", "HOME", "LANG", "TMPDIR", "CODEX_HOME"]
 
 [profiles.openclaw_local]
 executable = "openclaw"
 environment = ["PATH", "HOME", "LANG", "TMPDIR"]
+
+[profiles.claude_code_local]
+executable = "claude"
+permission_mode = "acceptEdits"
+environment = ["PATH", "HOME", "LANG", "TMPDIR", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL"]

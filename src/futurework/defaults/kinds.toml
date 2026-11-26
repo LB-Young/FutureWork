@@ -1,0 +1,27 @@
+# Canonical identity, execution and team mode values used by the runtime.
+[conversation]
+assistant = "assistant"
+friend = "agent"
+team = "group"
+
+[execution]
+native = "native"
+codex = "codex_cli"
+openclaw = "openclaw"
+claude_code = "claude_code"
+process = "process"
+http = "http"
+
+[team_mode]
+swarm = "swarm"
+controlled = "controlled"
+
+[task_kind]
+agent_chat = "agent_chat"
+group_swarm = "group_swarm"
+group_controlled = "group_controlled"
+
+[delegation_target]
+auto = "auto"
+friend = "agent"
+team = "group"

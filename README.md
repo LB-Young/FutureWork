@@ -2,7 +2,7 @@
 
 FutureWork 是一个可以在本机安装和运行的 Agent 团队应用。界面采用好友、群聊和消息收件箱的组织方式：你与个人助理「小未」交谈，小未把任务分给擅长对应能力的 Agent 好友；好友之间也可以组成群聊。除了你，好友和群成员都是 Agent。
 
-当前版本提供网页、桌面 App 入口、终端聊天入口、带密钥的无页面 API、SQLite 持久化、多平台模型调用、通用工具和两种群聊模式。外部 Agent 好友可通过本机 Codex/OpenClaw CLI、JSONL 进程协议或 HTTP 协议运行；需要用户主动配置。文档中的“目标架构”仍包含后续能力；使用前请先阅读下文的[当前能力与边界](#当前能力与边界)。
+当前版本提供网页、桌面 App 入口、终端聊天入口、带密钥的无页面 API、SQLite 持久化、多平台模型调用、通用工具和两种群聊模式。小未、小T、小V、Codex、OpenClaw、Claude Code 和媒体群随首次初始化安装；其他 Agent 可通过本机 CLI、JSONL 进程协议或 HTTP 协议接入。文档中的“目标架构”仍包含后续能力；使用前请先阅读下文的[当前能力与边界](#当前能力与边界)。
 
 ## 目录导航
 
@@ -21,18 +21,18 @@ FutureWork 是一个可以在本机安装和运行的 Agent 团队应用。界�
 
 | 模块 | 当前实现 |
 | --- | --- |
-| 个人助理 | 「小未」区分聊天和任务；任务按配置的关键词拆分、匹配 Agent，缺少对应能力时创建 Agent 配置并分派。 |
-| 对话执行入口 | Web、无页面 API、桌面 App 和 CLI 都进入相同的 `RunParams → TaskFactory → TaskRuntime` 链；重复消息 ID 不再重复分类或执行。 |
-| 对象调用链 | `TaskRuntime` 持有助理、私聊、群聊 Runtime；`AgentRuntime` 持有模型网关，单次运行创建授权工具注册表；API 持有消息、Agent 和群聊服务对象。 |
+| 个人助理 | 小未与好友使用同一个 Agent loop。小未根据请求自主调用 `delegate_task`；该工具才会规划、匹配或创建好友，并可指派给群聊。简单问题由小未直接回答。 |
+| 对话执行入口 | Web、无页面 API、桌面 App 和 CLI 都进入相同的 `RunParams → TaskFactory → TaskRuntime` 链；TaskRuntime 按会话目标路由，不预先分类聊天/任务。 |
+| 对象调用链 | `TaskRuntime` 持有 `AgentRuntime` 和 `TeamRuntime`；`AgentRuntime` 持有模型网关，单次运行创建授权工具注册表；API 持有消息、Agent 和群聊服务对象。 |
 | Agent 好友 | 每位好友由独立 TOML 定义，拥有自己的能力、权限和私聊历史；可选内置模型、Codex、OpenClaw、JSONL 进程或 HTTP 执行后端。 |
-| 初始成员 | 全新用户目录仅预置小未、小T、小V和一个「媒体群」；其他好友与群聊由用户创建或由小未按任务需要创建。 |
+| 初始成员 | 全新用户目录预置小未、小T、小V、Codex、OpenClaw、Claude Code 和一个「媒体群」；外部 CLI 好友的实际调用依赖本机安装、账户和配置健康。 |
 | 群聊 | `swarm` 模式由成员轮流响应；`controlled` 模式由小未选择成员，必要时汇总多人回复。群聊读取本群自己的历史。 |
 | 模型 | 支持 OpenAI 兼容文本接口、Anthropic Messages 接口，以及 Bamboo 风格的公司 HTTP 模型代理；预置多家云平台与本地部署示例。只有选中的模型才需要可用。 |
 | 工具 | 已接通计算、工作区文件读取/搜索/写入/编辑、Skill 读取、公共网页抓取与保存，以及需显式开启的命令执行；调用前复核该 Agent 的授权。 |
 | 数据与记忆 | 消息、任务、审批、已读位置和事件保存在 SQLite；提交后的消息按小未、好友、群聊分别镜像为原始 JSONL，并生成有来源标记的 Markdown 经验。人物和群聊长期介绍保存在对应 TOML 旁边。 |
 | 页面 | 支持好友与群聊切换、最近消息、全部消息、待审批筛选、Agent 配置和任务状态查看。 |
 
-页面现在只列出有执行器的工具。`read_file`、`glob_files`、`grep_files` 是兼容旧配置的别名；新配置使用 `read`、`glob`、`grep`。模型运行时另有只读的 `memory_search`，按当前作用域检索记忆。图片理解、生成与编辑、文生视频、视频关键帧理解、本地裁剪与缩放、声明式 Agent Workflow 以及用户启用的 MCP stdio 工具已接入；浏览器自动化、BKN、LSP 和生成式视频编辑尚未接入。Skill 的 `SKILL.md` 可以作为 Agent 的方法说明加载到提示词中，但安装 Skill 不会自动授予工具。任务初稿由当前服务进程的后台任务生成；重启后未开始的已分派任务会恢复执行，执行到一半的任务会标记失败并提示检查产物，以免重复执行工具。
+页面现在只列出有执行器的工具。`read_file`、`glob_files`、`grep_files` 是兼容旧配置的别名；新配置使用 `read`、`glob`、`grep`。模型运行时另有只读的 `memory_search`，按当前作用域检索记忆。图片理解、生成与编辑、文生视频、视频关键帧理解、本地裁剪与缩放、声明式 Agent Workflow 以及用户启用的 MCP stdio 工具已接入；浏览器自动化、BKN、LSP 和生成式视频编辑尚未接入。Skill 的 `SKILL.md` 可以作为 Agent 的方法说明加载到提示词中，但安装 Skill 不会自动授予工具。小未调用 `delegate_task` 时，分派的步骤在当前请求中执行并保存；重启时旧版未完成的分派任务会标记失败，不会盲目重放可能已生效的操作。
 
 ## 安装与首次运行
 
@@ -45,7 +45,7 @@ futurework doctor
 futurework serve
 ```
 
-`futurework init` 创建用户目录和缺失的初始配置；默认位置是 `~/.FutureWork/`。`futurework doctor` 检查 TOML 引用和部分配置约束，不会连接模型服务，也不保证模型 ID 或密钥有效。`futurework serve` 默认只监听 `127.0.0.1:8000`。浏览器打开 <http://127.0.0.1:8000/>；接口文档在 <http://127.0.0.1:8000/docs>。
+`futurework init` 创建用户目录和缺失的初始配置；默认位置是 `~/.FutureWork/`。`futurework doctor` 检查 TOML 配置和外部 Agent 的本机 CLI 健康状态；执行器不可用时返回非零状态。它不会连接模型服务，也不保证模型 ID、账户余额或密钥有效。`futurework serve` 默认只监听 `127.0.0.1:8000`。浏览器打开 <http://127.0.0.1:8000/>；接口文档在 <http://127.0.0.1:8000/docs>。
 
 初始配置让小未和示例 Agent 使用 DeepSeek。如果使用云端 DeepSeek，先在**启动 FutureWork 的同一个终端**设置环境变量，再运行服务：
 
@@ -100,7 +100,7 @@ remote_id = "qwen2.5:7b"
 supports_tools = false
 ```
 
-`remote_id` 必须是 Ollama 中实际存在的模型名；可以运行 `ollama list` 核对。接着把 `~/.FutureWork/agents/assistant.toml` 中的 `[model] id` 改为 `ollama_local`，让小未的聊天、任务判断和群中控也使用本地模型：
+`remote_id` 必须是 Ollama 中实际存在的模型名；可以运行 `ollama list` 核对。接着把 `~/.FutureWork/agents/assistant.toml` 中的 `[model] id` 改为 `ollama_local`，让小未的聊天、任务分派工具调用和群中控也使用本地模型：
 
 ```toml
 [model]
@@ -242,7 +242,7 @@ id = "ollama_local"
 "research.web" = 0.9
 ```
 
-用户在小未的聊天区发消息时，系统先判断是聊天还是任务。任务按 `app.toml` 中的 `[[planner.rules]]` 关键词形成步骤，再依据 Agent 能力分值和 `[matching]` 阈值选择好友；缺少合适好友时创建新的 TOML 文件并给予最小默认权限。该过程是当前版本的规则规划与模型协作，不是通用的自主多步规划引擎。
+用户在小未的聊天区发消息后，小未先进入与其他好友相同的 Agent loop。模型认为需要其他好友或群协作时，可调用 `delegate_task`，指定好友、群，或选择自动匹配。自动匹配才按 `app.toml` 中的 `[[planner.rules]]` 关键词形成步骤，并依据 Agent 能力分值和 `[matching]` 阈值选择好友；缺少合适好友时创建新的 TOML 文件并给予最小默认权限。简单问题可以直接回答，不产生分派任务。
 
 每个群由 `~/.FutureWork/teams/<ID>.toml` 定义。群成员填写 Agent ID，不复制成员的模型或工具配置。`swarm` 没有中控；`controlled` 的 `[controller] agent_id` 必须是 `assistant`。示例：
 
@@ -265,9 +265,9 @@ agent_id = "assistant"
 
 小未私聊、好友私聊与群聊分别读取各自的会话历史。群里的成员回复留在群会话中，不会写进对应好友的私聊。执行层将单次 Agent 身份、会话历史、模型别名和工具授权组成 `AgentRun` 对象，再通过 `ModelRequest`、`ModelResult`、`ToolRequest` 和 `ToolResult` 对象传递模型与工具数据。HTTP、TOML 和 SQLite 边界使用普通映射，进入运行层时转换为对象。
 
-当前消息执行链为 `POST /conversations/{id}/messages → RunParams.from_http → TaskFactory.create → TaskRuntime.run → 对应助理、好友或群聊 Runtime`。`RunParams` 包含入口来源、会话目标快照、消息正文及客户端消息 ID；助理消息先分类为聊天或分派任务。工厂只创建对象，不调用模型、不写数据库。五种 Task 类型是 `assistant_chat`、`assistant_delegation`、`agent_chat`、`group_swarm` 和 `group_controlled`。分派任务持久化任务和步骤，并把同一个 Task 对象交给后台执行；其他对话只保留原有消息记录与 API 响应。查询、配置修改和审批接口仍走各自的业务路径，不会伪装成 Agent 对话任务。
+当前消息执行链为 `POST /conversations/{id}/messages → RunParams → TaskFactory → TaskRuntime → AgentRuntime 或 TeamRuntime`。`RunParams` 包含入口来源、会话目标快照、消息正文及客户端消息 ID；工厂只按会话目标创建 `agent_chat`、`group_swarm` 或 `group_controlled` 三类 Task，不调用模型、不写数据库。小未和其他好友统一进入 AgentRuntime；小未选择调用 `delegate_task` 时才由工具执行层创建并运行持久任务。查询、配置修改和审批接口仍走各自的业务路径。
 
-运行时依赖在启动时装配一次：`TaskPlanner` 负责规则拆解和 Agent 匹配；`AssistantRuntime` 负责小未的意图判断和已分派步骤，`DirectChatRuntime` 负责好友私聊，`GroupChatRuntime` 持有 `SwarmPolicy` 或 `GroupController`。它们共享 `AgentRuntime`，后者用 `AgentRun` 固定身份、模型别名、会话历史与工具授权，再调用 `ModelGateway`。模型网关按别名缓存 `ModelAdapter` 实例并按配置重试；单次 Agent 运行的 `ToolRegistry` 提供模型可见 schema 和底层处理器，`ToolExecutionLayer` 对每次模型工具调用做授权、审批、校验、重试和审计。`MessageService`、`AgentService`、`GroupService` 负责写入与配置同步。保留的少量模块函数是旧调用方的兼容入口，核心请求路径通过对象方法调用。
+运行时依赖在启动时装配一次：TaskRuntime 负责幂等、持久化用户消息、路由和任务级错误处理；AgentRuntime 拥有小未与好友的同一套模型/工具 loop；TeamRuntime 持有 SwarmPolicy 或 GroupController 并调用成员的 AgentRuntime。`TaskPlanner` 只存在于 `delegate_task` 的执行服务中，由小未实际调用后才进行规则拆解和能力匹配。模型网关按别名缓存适配器；Agent、Team 和 Task 各有独立的有限重试配置，工具执行层只自动重试可重放读类工具。全部重试次数和退避参数都在用户目录的 `runtime.toml`、`tools.toml` 与 `app.toml` 中。
 
 ## 工具、权限与审批
 
@@ -388,7 +388,7 @@ futurework api
 curl -H "Authorization: Bearer $FUTUREWORK_API_KEY" http://127.0.0.1:8000/api/v1/agents
 ```
 
-外部好友**不会在初始化时自动出现**。在 `~/.FutureWork/agents/` 添加一个 TOML 文件，文件名与 `id` 相同；`~/.FutureWork/agent_backends.toml` 则定义执行 profile。保存后运行 `futurework doctor` 并重启服务。可以请求 `GET /api/v1/agents/<id>/health` 检查执行器；OpenClaw 会运行自身的 `config validate`，Codex 与通用进程会检查可执行文件。下面的 Codex 示例使用只读沙箱；若需要写文件，改为 `sandbox = "workspace-write"` 并确认工作目录：
+Codex、OpenClaw 和 Claude Code 已作为内置好友安装，默认执行目录是 `~/.FutureWork/workspace/`。首次安装后运行 `futurework doctor` 并请求 `GET /api/v1/agents/<id>/health` 检查执行器；健康检查只验证 CLI 和配置，不代表模型账号有余额。当前内置 Codex profile 的模型别名为 `gpt-6.2-sol`，可以在 `~/.FutureWork/agent_backends.toml` 覆盖 `model`；默认 `workspace-write` 沙箱只能写其配置工作目录。用户自建好友仍是在 `~/.FutureWork/agents/` 写同名 TOML，再在 `agent_backends.toml` 定义 profile。下面展示一个自建的只读 Codex profile：
 
 ```toml
 # ~/.FutureWork/agent_backends.toml
@@ -418,7 +418,9 @@ kind = "codex_cli"
 profile = "local_codex"
 ```
 
-OpenClaw 配置把 `kind` 改为 `openclaw`，profile 的 `executable` 指向 `openclaw`。执行器使用 `openclaw agent --local --json`，按好友和会话作用域创建不同 session ID，不加 `--deliver`，因此不会向外部聊天渠道发送结果。若 OpenClaw 使用 nvm 安装且启动进程的 Node 版本偏旧，执行器会优先使用 OpenClaw 可执行文件同目录的 Node；也可在 profile 填 `node_bin = "/绝对路径/node所在目录"`。OpenClaw 本机配置、模型凭据和 Gateway 能否正常工作仍由 OpenClaw 自身决定。
+OpenClaw 好友使用 `openclaw agent --local --json`，每次调用使用新的 OpenClaw session，FutureWork 只传当前私聊或群聊上下文，不加 `--deliver`，因此不会向外部聊天渠道发送结果。若 OpenClaw 使用 nvm 安装且启动进程的 Node 版本偏旧，执行器会优先使用 OpenClaw 可执行文件同目录的 Node；也可在 profile 填 `node_bin = "/绝对路径/node所在目录"`。本机 OpenClaw 配置和模型服务必须由 OpenClaw 自身验证通过。
+
+Claude Code 好友使用本机 `claude -p --output-format json`，每次显式提供当前作用域上下文并关闭 Claude 会话持久化。默认 `acceptEdits` 模式只对配置的工作目录生效；其环境变量白名单包括 `ANTHROPIC_API_KEY`、`ANTHROPIC_AUTH_TOKEN` 和 `ANTHROPIC_BASE_URL`。使用前通过 `claude auth status` 检查账号，再发送一个简短请求验证模型服务与余额。
 
 自编 Agent 可使用 `kind = "process"`：profile 填 `executable` 与 `arguments = ["/绝对路径/agent.py"]`。FutureWork 向标准输入写一行 JSON，包含 `protocol: futurework-agent-v1`、`agent_id`、`scope: {type,id}`、`message` 和当前会话的 `history`；进程从标准输出返回一行 `{"text":"回复内容"}`。HTTP Agent 使用 `kind = "http"`，profile 填固定的 `endpoint`，接收相同 JSON 并返回相同结构；明文 HTTP 仅允许环回地址，远端须使用 HTTPS。需要鉴权时填 `auth_env = "某环境变量名"`，请求会携带对应 Bearer 凭据。profile 可覆盖 `agent_backends.toml [defaults]` 中的超时、历史条数、输入和输出上限。Codex/OpenClaw/自编 Agent 都不会自动读取 FutureWork 的其他私聊或群聊历史，FutureWork 仅把当前作用域的有限历史传给它们。
 

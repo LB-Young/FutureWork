@@ -1,11 +1,9 @@
 """Recover persisted delegated tasks after a service restart without replaying uncertain calls."""
 
-from futurework.runtime.run_params import RunParams
-from futurework.runtime.task_factory import Task, TaskKind
 
 
 class TaskRecoveryWorker:
-    """Resume never-started assignments and expose interrupted work as failed."""
+    """Mark legacy unfinished assignments uncertain instead of replaying side effects."""
 
     def __init__(self, database, config: dict, message_service, task_runtime) -> None:
         self.database = database
@@ -14,9 +12,7 @@ class TaskRecoveryWorker:
         self.task_runtime = task_runtime
 
     async def recover(self) -> None:
-        """Run once on startup; a running step may already have performed side effects."""
-        if self.config["model"]["provider"] == "mock":
-            return
+        """Run once on startup; old queued and running steps may have side effects."""
         with self.database.transaction() as connection:
             running = [dict(row) for row in connection.execute("SELECT id FROM tasks WHERE status='running'")]
             assigned = [dict(row) for row in connection.execute("SELECT id, request FROM tasks WHERE status='assigned'")]
@@ -28,11 +24,10 @@ class TaskRecoveryWorker:
                                                 "服务重启打断了任务执行。为避免重复执行可能已生效的工具，本任务已标记失败；请检查已有产物后重新发起。",
                                                 task_id=row["id"])
                     self.database.emit(connection, "task.updated", {"task_id": row["id"], "status": "failed"})
-        if not self.config["worker"]["recover_assigned_on_startup"]:
-            return
         for row in assigned:
-            params = RunParams.from_http({"id": "assistant", "kind": "assistant",
-                                          "name": self.config["ui"]["assistant_name"]},
-                                         row["request"], f"recovery:{row['id']}")
-            task = Task(id=row["id"], kind=TaskKind.ASSISTANT_DELEGATION, params=params)
-            await self.task_runtime.execute_assigned(task)
+            with self.database.transaction() as connection:
+                connection.execute("UPDATE tasks SET status='failed' WHERE id=?", (row["id"],))
+                self.message_service.insert(connection, "assistant", "system", "系统",
+                                            "旧版本分派任务未确认执行状态，已停止自动重放；请检查产物后重新发起。",
+                                            task_id=row["id"])
+                self.database.emit(connection, "task.updated", {"task_id": row["id"], "status": "failed"})

@@ -5,3 +5,18 @@ schema_version = 1
 max_turns = 8
 max_model_calls = 16
 max_parallel_agents = 3
+
+[task_retry]
+max_attempts = 2
+base_backoff_seconds = 0.3
+max_backoff_seconds = 2.0
+
+[agent_retry]
+max_attempts = 2
+base_backoff_seconds = 0.3
+max_backoff_seconds = 2.0
+
+[team_retry]
+max_attempts = 2
+base_backoff_seconds = 0.3
+max_backoff_seconds = 2.0

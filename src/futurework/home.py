@@ -60,6 +60,14 @@ def ensure_home(override: str | Path | None = None) -> Path:
         if not target.exists():
             target.write_bytes(source.read_bytes())
     assistant_file = home / "agents" / "assistant.toml"
+    if assistant_file.is_file():
+        assistant_doc = tomlkit.parse(assistant_file.read_text(encoding="utf-8"))
+        tools = list(assistant_doc.get("tools", []))
+        if "delegate_task" not in tools:
+            tools.append("delegate_task")
+            assistant_doc["tools"] = tools
+            from futurework.abilities.tools.management import atomic_text
+            atomic_text(assistant_file, tomlkit.dumps(assistant_doc))
     if assistant_file.is_file() and not any((home / root / "dynamic_plan" / "SKILL.md").is_file()
                                             for root in ("skills", "abilities/skills")):
         assistant_doc = tomlkit.parse(assistant_file.read_text(encoding="utf-8"))

@@ -18,9 +18,9 @@ from futurework.contexts.types import ScopeKey
 from futurework.runtime.tool_dispatch import REPLAY_SAFE_TOOLS, SCHEMAS, ToolRegistry, ToolResult
 
 
-JSON_OUTPUTS = {"memory_search": dict, "plan_update": dict, "plan_check": dict,
+JSON_OUTPUTS = {"delegate_task": dict, "memory_search": dict, "plan_update": dict, "plan_check": dict,
                 "schedule_create": dict, "schedule_list": list, "user_profile_update": str}
-JSON_REQUIRED = {"memory_search": {"tier", "scope", "matches"},
+JSON_REQUIRED = {"delegate_task": {"task_id", "status"}, "memory_search": {"tier", "scope", "matches"},
                  "plan_update": {"steps"}, "plan_check": {"id", "status", "evidence"},
                  "schedule_create": {"id", "prompt", "run_at", "status"}}
 
@@ -169,7 +169,8 @@ class ToolExecutionLayer:
             try:
                 output = await asyncio.wait_for(
                     self.registry.execute(call.name, call.arguments, raise_errors=True),
-                    timeout=self.policy["call_timeout_seconds"])
+                    timeout=self.policy["delegation_timeout_seconds"] if call.name == "delegate_task"
+                    else self.policy["call_timeout_seconds"])
                 result = self._validate_output(call, output)
                 result = ToolResult(result.content, result.success, result.error_code,
                                     attempts, approval_id)

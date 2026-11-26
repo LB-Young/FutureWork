@@ -3,6 +3,7 @@
 import json
 
 from futurework.contexts.types import ScopeKey
+from futurework.kinds import ASSISTANT, TEAM
 
 class GroupController:
     """Use XiaoWei's model within one group's history to select members."""
@@ -14,7 +15,7 @@ class GroupController:
     def profile(self) -> dict:
         """Build XiaoWei's group controller identity from the loaded config."""
         assistant = self.config["assistant"]
-        return {"id": "assistant", "name": assistant["name"], "role": assistant["role"],
+        return {"id": ASSISTANT, "name": assistant["name"], "role": assistant["role"],
                 "model": assistant["model"]["id"]}
 
     async def choose_members(self, members: list[dict], text: str, history: list[dict], limit: int,
@@ -32,7 +33,7 @@ class GroupController:
             '只返回 JSON，例如 {"agent_ids":["image","video"]}；只能使用候选 ID。'
         )
         selection = await self.agent_runtime.respond(self.profile(), history + [{"from": "me", "text": prompt}],
-                                                     ScopeKey("group", group_id))
+                                                     ScopeKey(TEAM, group_id))
         try:
             selected_ids = json.loads(selection)["agent_ids"]
         except (ValueError, KeyError, TypeError):

@@ -7,6 +7,9 @@ from fastapi.testclient import TestClient
 
 from futurework.api.app import create_app
 from tests.support import sample_home
+from futurework.integrations.model_gateway.gateway import ModelGateway
+from futurework.integrations.model_gateway.types import ModelResult, ToolCall
+from futurework.runtime.agent_executor import AgentResponse
 
 
 def send(client, conversation_id, body):
@@ -16,10 +19,16 @@ def send(client, conversation_id, body):
 
 
 def test_assistant_dispatch_and_agent_file_survive_restart(tmp_path, monkeypatch):
-    async def fake_respond(self, agent, history, scope=None):
-        return f"{agent['name']} 已处理"
+    async def fake_generate(self, request):
+        system = request.messages[0]["content"]
+        if "你的名字是小未" in system:
+            if any(message.get("role") == "tool" for message in request.messages):
+                return ModelResult("专家已经完成。")
+            return ModelResult(tool_calls=[ToolCall("delegate", "delegate_task",
+                                                    {"request": "请做竞品分析"})])
+        return ModelResult("竞品分析初稿已完成")
 
-    monkeypatch.setattr("futurework.model.AgentRuntime.respond", fake_respond)
+    monkeypatch.setattr(ModelGateway, "generate", fake_generate)
     home = sample_home(tmp_path / "home")
     client = TestClient(create_app(home))
     response = send(client, "assistant", "请做竞品分析")
@@ -33,14 +42,10 @@ def test_assistant_dispatch_and_agent_file_survive_restart(tmp_path, monkeypatch
 
 
 def test_assistant_chat_stays_in_its_own_conversation(tmp_path, monkeypatch):
-    async def chat_mode(self, text, history):
-        return "chat"
-
     async def fake_respond(self, agent, history, scope=None):
-        return "你好，我是小未。"
+        return AgentResponse("你好，我是小未。")
 
-    monkeypatch.setattr("futurework.runtime.assistant_runtime.AssistantRuntime.classify", chat_mode)
-    monkeypatch.setattr("futurework.model.AgentRuntime.respond", fake_respond)
+    monkeypatch.setattr("futurework.model.AgentRuntime.respond_with_result", fake_respond)
     client = TestClient(create_app(sample_home(tmp_path / "home")))
     response = send(client, "assistant", "你好")
     assert response.status_code == 202

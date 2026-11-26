@@ -2,10 +2,12 @@
 
 import re
 import tomllib
+from importlib.resources import files
 from pathlib import Path
 from urllib.parse import urlsplit
 
 from futurework.extension_system.skill_loader import load_skills
+from futurework.kinds import ASSISTANT, CONTROLLED, EXECUTION_KINDS, FRIEND, NATIVE, SWARM, TEAM, HTTP, PROCESS
 
 
 ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
@@ -40,7 +42,20 @@ def load_user_config(home: Path) -> dict:
         raise ValueError(f"Invalid loopback server configuration in {home / 'app.toml'}")
     models = read_toml(home / "models.toml")
     backends_path = home / "agent_backends.toml"
-    backends = read_toml(backends_path) if backends_path.exists() else {"profiles": {}}
+    with files("futurework").joinpath("defaults", "agent_backends.toml").open("rb") as source:
+        bundled_backends = tomllib.load(source)
+    user_backends = read_toml(backends_path) if backends_path.exists() else {}
+    if not isinstance(user_backends.get("profiles", {}), dict) or not isinstance(user_backends.get("defaults", {}), dict):
+        raise ValueError("agent_backends.toml profiles and defaults must be tables")
+    if any(not isinstance(profile, dict) for profile in user_backends.get("profiles", {}).values()):
+        raise ValueError("agent_backends.toml profile entries must be tables")
+    profile_names = set(bundled_backends.get("profiles", {})) | set(user_backends.get("profiles", {}))
+    backends = {"defaults": {**bundled_backends.get("defaults", {}),
+                              **user_backends.get("defaults", {})},
+                "profiles": {
+                    name: {**bundled_backends.get("profiles", {}).get(name, {}),
+                           **user_backends.get("profiles", {}).get(name, {})}
+                    for name in profile_names}}
     if not isinstance(backends.get("profiles"), dict):
         raise ValueError("agent_backends.toml needs [profiles.*] tables")
     defaults = backends.get("defaults", {})
@@ -65,6 +80,12 @@ def load_user_config(home: Path) -> dict:
             raise ValueError(f"Agent backend environment must list variable names: {name}")
         if "auth_env" in profile and not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", profile["auth_env"]):
             raise ValueError(f"Agent backend auth_env is invalid: {name}")
+        if "model" in profile and (not isinstance(profile["model"], str) or not profile["model"].strip()):
+            raise ValueError(f"Agent backend model is invalid: {name}")
+        if "sandbox" in profile and profile["sandbox"] not in {"read-only", "workspace-write"}:
+            raise ValueError(f"Agent backend sandbox is invalid: {name}")
+        if "permission_mode" in profile and profile["permission_mode"] not in {"plan", "default", "acceptEdits"}:
+            raise ValueError(f"Claude Code permission mode is invalid: {name}")
         for limit in ("timeout_seconds", "health_timeout_seconds", "max_output_bytes", "max_answer_chars", "max_input_chars", "history_messages"):
             if limit in profile and (type(profile[limit]) is not int or profile[limit] <= 0):
                 raise ValueError(f"Invalid Agent backend {limit}: {name}")
@@ -78,7 +99,7 @@ def load_user_config(home: Path) -> dict:
             if item_id in definitions:
                 raise ValueError(f"Duplicate {category} ID across legacy and abilities directories: {item_id}")
             definitions[item_id] = item
-    if "assistant" not in agents:
+    if ASSISTANT not in agents:
         raise ValueError(f"Missing required Agent: {home / 'agents' / 'assistant.toml'}")
     if set(agents) & set(teams):
         raise ValueError("Agent and Team IDs must not overlap because conversation scopes share IDs")
@@ -105,11 +126,11 @@ def load_user_config(home: Path) -> dict:
     for agent_id, agent in agents.items():
         if not agent.get("name") or not agent.get("role") or not isinstance(agent.get("capabilities", {}), dict):
             raise ValueError(f"Incomplete Agent definition: {home / 'agents' / f'{agent_id}.toml'}")
-        execution = agent.get("execution", {"kind": "native"})
-        kind = execution.get("kind", "native")
-        if kind not in {"native", "codex_cli", "openclaw", "process", "http"}:
+        execution = agent.get("execution", {"kind": NATIVE})
+        kind = execution.get("kind", NATIVE)
+        if kind not in EXECUTION_KINDS:
             raise ValueError(f"Unknown execution backend for agent {agent_id}: {kind}")
-        if kind == "native":
+        if kind == NATIVE:
             model_config = agent.get("model")
             if not isinstance(model_config, dict):
                 raise ValueError(f"Agent {agent_id} needs a [model] table with id = \"default_fast\"")
@@ -120,29 +141,29 @@ def load_user_config(home: Path) -> dict:
             profile = backends["profiles"].get(execution.get("profile"))
             if not profile:
                 raise ValueError(f"Unknown execution profile for agent {agent_id}")
-            if kind == "http" and not profile.get("endpoint"):
+            if kind == HTTP and not profile.get("endpoint"):
                 raise ValueError(f"HTTP Agent {agent_id} needs a fixed endpoint")
-            if kind == "process" and not profile.get("executable"):
+            if kind == PROCESS and not profile.get("executable"):
                 raise ValueError(f"Process Agent {agent_id} needs an executable")
         load_skills(home, agent.get("extensions", {}).get("skills", []), settings["extensions"]["policy"].get("max_skill_chars", 12000))
     for team_id, team in teams.items():
         if not team.get("name"):
             raise ValueError(f"Incomplete Team definition: {home / 'teams' / f'{team_id}.toml'}")
-        if team.get("mode") not in {"swarm", "controlled"}:
+        if team.get("mode") not in {SWARM, CONTROLLED}:
             raise ValueError(f"Unknown group mode in team {team_id}")
         members = team.get("members", [])
         if not isinstance(members, list) or len(members) != len(set(members)) or any(member not in agents or member == "assistant" for member in members):
             raise ValueError(f"Invalid members in team {team_id}")
         controller = team.get("controller")
-        if team["mode"] == "controlled" and (not controller or controller.get("agent_id") != "assistant"):
+        if team["mode"] == CONTROLLED and (not controller or controller.get("agent_id") != ASSISTANT):
             raise ValueError(f"Controlled team {team_id} requires assistant controller")
-        if team["mode"] == "swarm" and controller:
+        if team["mode"] == SWARM and controller:
             raise ValueError(f"Swarm team {team_id} cannot have a controller")
         reply = team.get("reply", {})
         if any(not isinstance(reply.get(key, 1), int) or reply.get(key, 1) <= 0
                for key in ("max_responders_per_round", "max_rounds", "max_total_model_calls")):
             raise ValueError(f"Invalid reply limits in team {team_id}")
-        if team["mode"] == "controlled" and reply.get("max_total_model_calls", 8) < 3:
+        if team["mode"] == CONTROLLED and reply.get("max_total_model_calls", 8) < 3:
             raise ValueError(f"Controlled team {team_id} needs at least three model calls")
     installed = {
         "skills": sorted(str(path.relative_to(home)) for root in (home / "skills", home / "abilities" / "skills") for path in root.rglob("SKILL.md")),

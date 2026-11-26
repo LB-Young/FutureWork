@@ -10,6 +10,7 @@ from typing import Any
 import httpx
 
 from futurework.abilities.tools.bash import handler as bash_handler
+from futurework.abilities.tools.delegate_task import handler as delegate_handler
 from futurework.abilities.tools.calculator import handler as calculator_handler
 from futurework.abilities.tools.edit import handler as edit_handler
 from futurework.abilities.tools.glob import handler as glob_handler
@@ -34,9 +35,15 @@ from futurework.contexts.retrieval import MemoryRetriever
 from futurework.contexts.store import MemoryStore
 from futurework.contexts.types import ScopeKey
 from futurework.extension_system.mcp_client import MCPClient
+from futurework.kinds import ASSISTANT, FRIEND, TEAM, DELEGATION_AUTO
 
 
 SCHEMAS = {
+    "delegate_task": ("Assign a complex task to a capable Agent friend or team; XiaoWei only. "
+                      "Use when another specialist or a group should do work, then summarize its actual result.",
+                      {"request": {"type": "string"},
+                       "target_kind": {"type": "string", "enum": [DELEGATION_AUTO, FRIEND, TEAM]},
+                       "target_id": {"type": "string"}}, ["request"]),
     "skill_create": ("Create a reusable Skill in the user's abilities directory; requires approval.",
                      {"name": {"type": "string"}, "description": {"type": "string"},
                       "instructions": {"type": "string"}}, ["name", "description", "instructions"]),
@@ -102,7 +109,7 @@ SCHEMAS = {
               "timeout": {"type": "integer"}}, ["command"]),
 }
 
-PUBLIC_TOOLS = tuple(name for name in SCHEMAS if name not in {"read_file", "glob_files", "grep_files", "memory_search", "user_profile_update"})
+PUBLIC_TOOLS = tuple(name for name in SCHEMAS if name not in {"read_file", "glob_files", "grep_files", "memory_search", "user_profile_update", "delegate_task"})
 REPLAY_SAFE_TOOLS = frozenset({"calculator", "read", "read_file", "glob", "glob_files", "grep", "grep_files",
                                "memory_search", "skill_load", "web_fetch", "schedule_list"})
 
@@ -138,7 +145,8 @@ class ToolRegistry:
     """Authorize one run's tools and dispatch into their real ability handlers."""
 
     def __init__(self, agent_id: str, grants: tuple[str, ...] | list[str], config: dict,
-                 scope: ScopeKey | None = None, memory_store: MemoryStore | None = None) -> None:
+                 scope: ScopeKey | None = None, memory_store: MemoryStore | None = None,
+                 delegation_service=None) -> None:
         self.agent_id = agent_id
         self.scope = scope
         self.memory_retriever = MemoryRetriever(memory_store) if scope and memory_store and config["memory"]["search_enabled"] else None
@@ -147,6 +155,7 @@ class ToolRegistry:
             intrinsic += ("memory_search",)
         self.grants = tuple(dict.fromkeys((*grants, *intrinsic))) if scope else tuple(grants)
         self.config = config
+        self.delegation_service = delegation_service
         self.mcp_servers = tuple(config.get("agent_extensions", {}).get(agent_id, {}).get("mcp", []))
 
     def schemas(self) -> list[dict]:
@@ -200,7 +209,11 @@ class ToolRegistry:
         if denied:
             return denied
         try:
-            if name == "memory_search":
+            if name == "delegate_task":
+                if self.agent_id != ASSISTANT or self.scope is None or self.scope.kind != ASSISTANT or self.delegation_service is None:
+                    return ToolResult("delegation is available only to XiaoWei's personal conversation", False)
+                content = await delegate_handler.run(arguments, self.delegation_service)
+            elif name == "memory_search":
                 if self.memory_retriever is None or self.scope is None:
                     return ToolResult("memory search is unavailable for this run", False)
                 content = memory_handler.run(arguments, self.config, self.memory_retriever, self.scope, self.agent_id)

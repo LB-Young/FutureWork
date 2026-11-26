@@ -1,0 +1,13 @@
+# Built-in OpenClaw friend; validates the installed OpenClaw configuration.
+schema_version = 1
+id = "openclaw"
+name = "OpenClaw"
+role = "本机自动化与综合任务"
+kind = "friend"
+status = "active"
+tools = []
+[capabilities]
+"operations.assistance" = 0.9
+[execution]
+kind = "openclaw"
+profile = "openclaw_local"

@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from typing import Any
 from futurework.contexts.types import ScopeKey
+from futurework.kinds import ASSISTANT, FRIEND
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,5 +27,5 @@ class AgentRun:
         return cls(agent_id=agent["id"], name=agent["name"], role=agent["role"],
                    model_alias=agent["model"], tools=tuple(agent.get("tools", [])),
                    history=tuple(dict(item) for item in history), config=config,
-                   scope=scope or ScopeKey("assistant" if agent["id"] == "assistant" else "agent", agent["id"]),
+                   scope=scope or ScopeKey(ASSISTANT if agent["id"] == ASSISTANT else FRIEND, agent["id"]),
                    require_tool_approval=agent.get("approval", True))

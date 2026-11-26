@@ -21,7 +21,7 @@
 
 `pip install -e .` 负责安装包和命令入口。**首次执行 `futurework init` 或 `futurework serve` 时自动创建 `~/.FutureWork/`**；`serve` 内部先执行幂等初始化，再加载配置。这样普通安装、可编辑安装和升级都遵循相同规则，安装器不会在构建阶段改写用户目录。`futurework init` 用于希望启动前先检查或手工编辑配置的用户；`futurework paths` 显示实际路径。用 `FUTUREWORK_HOME` 或 `--home` 指定另一目录时，初始化和读取都只作用于该目录。
 
-当前实现将内置能力统一放在 `abilities/`，包含 `tools`、`skills`、`mcp`、`workflows`、`friends`、`teams` 六类。全新用户目录仅预置小未、小T、小V和媒体群；旧 `~/.futurework` 存在且新目录缺失时先复制，再补齐缺失文件。用户侧也创建 `abilities/` 同样的六类目录，新增好友/群配置参与启动加载。**唯一内置 Skill 是 `skill-creator`**，默认加载到小未，调用 `skill_create` 时仍需审批；动态计划由 `plan_update` 和 `plan_check` 工具承担。`user.md` 初始为空，所有 Agent 提示词读取至多 500 字；模型可通过受限工具追加明确的用户事实。定时任务保存在 `data/schedules/`，服务运行时轮询。图片好友已接通图片上传、视觉模型和媒体工具；视频好友已接通文生视频、关键帧理解和本地裁剪缩放工具。声明式 Agent Workflow 和本机 MCP stdio 工具已接入，权限仍由好友配置和工具审批层控制。
+当前实现将内置能力统一放在 `abilities/`，包含 `tools`、`skills`、`mcp`、`workflows`、`friends`、`teams` 六类。全新用户目录预置小未、小T、小V、Codex、OpenClaw、Claude Code 和媒体群；旧 `~/.futurework` 存在且新目录缺失时先复制，再补齐缺失文件。用户侧也创建 `abilities/` 同样的六类目录，新增好友/群配置参与启动加载。**唯一内置 Skill 是 `skill-creator`**，默认加载到小未，调用 `skill_create` 时仍需审批；动态计划由 `plan_update` 和 `plan_check` 工具承担。`user.md` 初始为空，所有 Agent 提示词读取至多 500 字；模型可通过受限工具追加明确的用户事实。定时任务保存在 `data/schedules/`，服务运行时轮询。图片好友已接通图片上传、视觉模型和媒体工具；视频好友已接通文生视频、关键帧理解和本地裁剪缩放工具。声明式 Agent Workflow 和本机 MCP stdio 工具已接入，权限仍由好友配置和工具审批层控制。
 
 首次初始化只复制缺失的内置示例，不覆盖用户已有 TOML、Skill、Workflow、MCP 或记忆。旧版本升级不自动重置用户配置；需要迁移时先备份、校验 schema，再原子写入。用户目录权限默认仅当前用户可读写。初始化失败时给出具体文件路径和原因，不允许带着半套配置启动。
 
@@ -155,15 +155,12 @@ FutureWork/
 │   │   └── policy.py                # 显式分享、保留与删除规则
 │   ├── runtime/
 │   │   ├── run_params.py           # 入口消息、来源、目标配置快照和幂等 ID
-│   │   ├── task_factory.py         # 按会话及意图创建类型化 Task；不执行副作用
-│   │   ├── task_runtime.py         # 幂等检查、任务分流、持久化与后台调度
-│   │   ├── router.py                # 按会话类型选择三种顶层 Runtime
-│   │   ├── assistant_runtime.py     # 小未对话：规划、分派、建 Agent、汇总
-│   │   ├── direct_runtime.py        # Agent 私聊：单 Agent 回复与私有上下文
-│   │   ├── group_runtime.py         # 群聊公共状态机与共享上下文
+│   │   ├── task_factory.py         # 只按会话目标创建类型化 Task
+│   │   ├── task_runtime.py         # 幂等检查、任务路由与安全重试
+│   │   ├── team_runtime.py          # 群聊成员协作和共享上下文
 │   │   ├── group_swarm.py           # 无中控：成员自治、发言队列与停止条件
 │   │   ├── group_controlled.py      # 小未中控：规划、分派、跟踪与汇总
-│   │   ├── agent_executor.py        # 三种 Runtime 共用的单 Agent 推理/工具循环
+│   │   ├── agent_executor.py        # 小未与好友共用的 Agent 推理/工具循环
 │   │   ├── run_spec.py              # 配置版本、上下文作用域、任务和预算快照
 │   │   ├── checkpoints.py           # 运行状态持久化、恢复和取消
 │   │   ├── tool_dispatch.py         # 模型可见 schema 与内置处理器分发
@@ -332,7 +329,7 @@ mcp_allowlist = []                     # 群可用连接上限；成员仍须独
 
 `swarm` 群保留共同字段和 `[reply]`，删除整个 `[controller]` 表。群配置只引用成员 ID，不复制成员的模型、能力或工具授权。成员不存在、处于 archived 状态或重复时，启动校验失败。`mode` 只允许 `swarm`、`controlled`；`controlled` 必须指定小未，`swarm` 不得出现中控配置。群聊的 `allow_member_tools` 仅表示群内是否允许发起工具请求，不能覆盖 Agent 自身权限和用户对资源的授权。模式、成员或预算变化产生新的群配置版本，进行中的一轮继续使用启动时的快照。
 
-**Swarm：无中控。** 每个 Agent 根据自身能力、群内消息和显式 `@` 判断是否参与；`@` 限定候选成员，无 `@` 时所有符合群订阅规则的成员可提出发言意向。`GroupChatRuntime` 只负责公平排队、并发限制、消息提交顺序、预算和停止条件，不生成任务计划，也不以小未身份决定谁该说什么。成员能看到群作用域内已提交的消息，不能读取其他成员的私聊。每轮每个成员最多一次主动发言；后续轮次只由新群消息或明确协作请求触发。所有成员间的请求和结果都写入群时间线，防止隐形对话和无限循环。
+**Swarm：无中控。** 每个 Agent 根据自身能力、群内消息和显式 `@` 判断是否参与；`@` 限定候选成员，无 `@` 时所有符合群订阅规则的成员可提出发言意向。`TeamRuntime` 只负责公平排队、并发限制、消息提交顺序、预算和停止条件，不生成任务计划，也不以小未身份决定谁该说什么。成员能看到群作用域内已提交的消息，不能读取其他成员的私聊。每轮每个成员最多一次主动发言；后续轮次只由新群消息或明确协作请求触发。所有成员间的请求和结果都写入群时间线，防止隐形对话和无限循环。
 
 **Controlled：小未中控。** 小未在群作用域中创建结构化 `GroupPlan`（用户目标、候选成员、分派步骤、依赖、预算、停止条件），策略校验后再分派。明确 `@Agent` 是候选约束；小未可以请求补充信息、安排多名成员按步骤协作、汇总结果或发起审批。她只使用本群上下文和成员公开能力，不自动读取自己与用户的私聊记忆，也不把群聊内容写回个人助理私聊。若小未模型不可用，采用配置的降级策略：暂停并告知用户，或按显式规则选择一位成员；不能静默切到 Swarm。两种模式均受同一群权限和成本硬上限约束。
 
@@ -398,58 +395,39 @@ supports_streaming = true
 
 密钥只保存在环境变量或系统密钥库，配置文件只写引用；日志、异常和 SSE 事件必须脱敏。401/403、配置错误和能力不支持直接失败；429、5xx、超时按平台 `Retry-After` 和指数退避重试，次数与总耗时受全局硬上限约束。产生工具副作用后禁止自动重放整轮请求。跨平台回退必须由 Agent 显式列出候选别名，并逐一验证工具能力、数据地域、费用与用户授权；不能因为一个平台故障就把私有数据自动发到另一个平台。上述网关和适配器均为设计目标。
 
-### 3.4 三种对话 Runtime
+### 3.4 AgentRuntime、TeamRuntime 与任务工具
 
-三类对话需要**三个不同的顶层 Runtime**。`runtime/router.py` 根据会话类型选择其一；它们各自决定上下文、状态流转和可执行动作，共用底层的 `AgentExecutor`、模型网关、工具检查和 checkpoint 组件。这里的 Runtime 是一次会话处理的执行器，不要求为每个好友或群聊常驻一个 Python 进程。
+当前对话有三种**上下文作用域**：小未个人会话、好友私聊和群聊；执行器是两种：小未与好友共用 `AgentRuntime`，群聊使用 `TeamRuntime` 并调用成员的 `AgentRuntime`。这保留了记忆隔离，也避免为小未单独维护一套模型 loop。
 
-**当前版本的入口对象链：** API 读取会话配置并将消息归一化为 `RunParams(source, target, message, client_message_id)`；`TaskRuntime.handle` 先按客户端消息 ID 检查幂等，仅对新的小未消息做聊天/任务分类；`TaskFactory.create` 根据分类、会话类型和群模式创建 `Task(id, kind, params)`。工厂不访问数据库或模型。`TaskRuntime.run` 按 `assistant_chat`、`assistant_delegation`、`agent_chat`、`group_swarm`、`group_controlled` 分流；助理分派将同一 Task 对象交给后台步骤执行。好友私聊只取好友会话历史，群聊只取群历史；群模式在建 Task 时决定，后续按 `Task.kind` 执行。重复提交同一客户端消息 ID 返回原消息/任务 ID，跨会话复用返回冲突。这里的 Task 是一次对话执行对象；目前只有助理分派任务写入 `tasks`/`task_steps` 表，普通聊天和群聊不新增持久任务行。只读查询、配置修改和审批有独立业务语义，保持各自入口，不创建 Agent Task。
-
-**当前版本的依赖装配：** FastAPI 启动时构造 `MessageService`、`AgentService`、`GroupService`、`AgentRuntime` 和 `TaskRuntime`。`TaskRuntime` 持有 `TaskPlanner`、`AssistantRuntime`、`DirectChatRuntime`、`GroupChatRuntime`；群运行时持有 `SwarmPolicy` 与 `GroupController`。`AgentRuntime.run(AgentRun)` 将当前会话范围内的历史与授权交给 `ModelGateway` 和单次运行的 `ToolRegistry`；模型网关按模型别名创建并缓存实现 `ModelAdapter` 的平台适配器，工具注册表用同一份授权生成 schema 并执行工具。API 不再实现消息写入、Agent 创建或群聊创建的 SQL 细节。兼容旧调用方的 `respond()`、`generate()`、`execute_async()` 等模块函数会新建对应对象；生产消息链使用已装配的对象。完整的上下文快照、持久运行 checkpoint 和跨进程恢复仍是目标设计，不能把当前对象化等同于这些能力已经完成。
-
-| Runtime | 负责的会话 | 上下文作用域 | 核心职责 |
-| --- | --- | --- | --- |
-| `AssistantRuntime` | 用户 ↔ 小未 | `(workspace_id, "assistant", "assistant")` | 理解目标、规划、分派、创建 Agent 配置草案、跟踪和汇总任务 |
-| `DirectChatRuntime` | 用户 ↔ 某个 Agent 好友 | `(workspace_id, "agent", agent_id)` | 加载该 Agent 配置和私聊上下文，完成单 Agent 回复与获准的工具调用 |
-| `GroupChatRuntime` | 用户与多个 Agent 的群聊 | `(workspace_id, "group", group_id)` | 固定群配置版本和上下文，按 `mode` 调用 Swarm 或 Controlled 策略，控制轮次、预算与消息提交 |
+`RunParams → TaskFactory → TaskRuntime` 只根据目标构造 `agent_chat`、`group_swarm` 或 `group_controlled`。TaskRuntime 负责幂等、保存用户消息、路由、任务级错误分类和有限重试，不判断小未消息是聊天还是任务，也不调用 TaskPlanner。个人会话直接交给 `AgentRuntime.handle_conversation()`；群聊交给 `TeamRuntime.run()`。AgentRuntime 内负责上下文加载、提示词、模型工具 loop、Agent 级重试及回复保存；TeamRuntime 负责群成员选择、群消息提交及 Team 级重试。
 
 ```text
-用户消息
-  -> MessageRouter 读取会话类型与配置版本
-     -> assistant_direct: AssistantRuntime.run(assistant_scope)
-     -> agent_direct:   DirectChatRuntime.run(agent_scope)
-     -> group:          GroupChatRuntime.run(group_scope, mode)
-                         -> swarm: SwarmPolicy -> AgentExecutor(member...) * N
-                         -> controlled: XiaoWeiController -> GroupPlan -> AgentExecutor(member...) * N
-
-三种 Runtime 调用共用的 AgentExecutor：
-  AgentExecutor.run(agent_config_version, allowed_context, task, budget)
-    -> ModelGateway -> ToolDispatch -> Checkpoint
+Web / App / API / CLI → RunParams → TaskFactory → TaskRuntime
+                                          ├─ 小未或好友 → AgentRuntime
+                                          │                 ├─ ModelGateway
+                                          │                 ├─ ToolExecutionLayer
+                                          │                 └─ delegate_task（仅小未个人会话）
+                                          └─ 群聊 → TeamRuntime
+                                                     ├─ SwarmPolicy 或 GroupController
+                                                     └─ AgentRuntime（成员，使用群 ScopeKey）
 ```
 
-**AssistantRuntime** 可以创建任务计划和子任务，但只从自己的上下文及经授权回传的任务产物中取材。它不能因“协调者”身份直接读取任意好友私聊或绕过权限审批。**DirectChatRuntime** 固定一个好友配置版本及其私有上下文，聊天内容不会写入群共享记忆。**GroupChatRuntime** 拥有独立群状态机和上下文管理：`SwarmPolicy` 只执行成员自治发言和调度约束，`ControlledPolicy` 调用小未的群内中控子执行生成结构化计划，再把步骤交给成员的 `AgentExecutor`。两者都只传入群上下文及当前任务授权材料，不带入成员私聊。中控执行不等于 `AssistantRuntime` 的个人助理会话；它复用小未的身份配置和执行器，但使用群 `ScopeKey`、群预算、群审计记录。
+`delegate_task` 是小未配置中独有的模型工具。小未可直接回答简单问题；模型认为需要分工时调用该工具，并选择自动匹配、指定好友或指定群。工具调用进入 `ToolExecutionLayer` 进行 schema、授权、审批和输出检查；随后由 `DelegationService` 使用 TaskPlanner 匹配已有能力、必要时创建新好友配置、持久化任务和步骤，并在本次请求内执行。自动规划不是入口前置动作。群目标进入 TeamRuntime，个人好友目标进入同一 AgentRuntime。小未的群中控使用群作用域，不获得个人会话的分派工具。
 
-群运行状态为 `received → selecting/planning → dispatching → collecting → summarizing/completed`，任一步可进入 `waiting_approval`、`failed` 或 `cancelled`。Swarm 跳过 `planning`，不生成中控总结；Controlled 可由小未生成汇总。成员结果提交到群时间线后才可作为下一轮输入。`max_rounds`、`max_responders_per_round`、`max_total_model_calls` 和 token/费用上限共同截断循环；达到上限时明确告知用户已有产物与未完成项。
+各层错误政策独立配置：`runtime.toml [task_retry]` 只重试安全的传输失败且不能在已发生工具副作用后重放整个任务；`[agent_retry]` 在模型调用前/期间对暂时网络错误进行有限重试；`[team_retry]` 对成员调用和中控选择进行有限重试。`tools.toml [execution]` 仅对可重放的读类工具自动重试，其他工具失败将错误码与尝试次数反馈给 Agent，由模型选择替代方案。401/403、参数/授权错误、配置错误和外部 Agent 结果不确定都直接终止自动重试。模型网关仍有供应商级的短暂 HTTP 重试预算。外部 Codex、OpenClaw、Claude Code 属于 AgentRuntime 的执行后端，不改变任务或群作用域。
 
-三个 Runtime 的顶层状态分别持久化为 `runtime_runs` 记录，含 `run_id`、`runtime_type`、群 `mode`、`scope_key`、配置版本、消息游标、状态、预算和 checkpoint。群内小未的中控计划及每位成员的单次执行分别有 `group_plans`、`agent_executions` 子记录，关联群 `run_id`，以便取消、重试和审计。任务 worker 调用 `AgentExecutor` 完成子任务；它属于任务执行路径，不混用私聊或群聊的顶层状态机。
-
-`runtime.toml` 统一定义最大循环次数、超时、重试、并发、token/费用硬上限和 checkpoint 周期；Agent TOML、群 TOML 只能在硬上限内收紧。`RunSpec` 固定 `agent_config_version?`、`group_config_version?`、`scope_key`、`context_cursor`、`task_id?` 和权限快照。权限变化只影响新运行；已暂停运行恢复时仍需重新检查敏感工具授权和审批有效期。
-
-**当前实现范围：** Team TOML 的 `mode` 决定 Swarm 或小未中控的单轮执行；模型网关支持 OpenAI 兼容接口、Anthropic Messages、阿里云异步媒体和 OpenRouter 图片接口，默认文本别名指向 DeepSeek。通用工具调用、媒体处理、分层记忆检索、动态计划工具、用户画像、定时任务、声明式 Workflow 和 MCP stdio 已接通。完整多轮群计划和独立的群成员子执行记录仍待实现。
+当前版本使用 SQLite 保存消息、任务、审批和事件；完整的跨进程 checkpoint、任务租约和事件重放仍是目标设计。任务一旦可能产生副作用，重启后不会自动重放旧版本未完成步骤。群聊当前为有界单轮执行，完整的多轮协作计划仍属于后续扩展。
 
 ### 3.5 多入口的统一执行链（目标设计）
 
 **当前实现：** `src/futurework/adapters/` 已有 `web/`、`api/`、`app/`、`cli/` 四个入口子目录。Web 与无页面 API 共用 FastAPI 路由和 TaskRuntime；API 入口验证 Bearer 密钥。桌面 App 使用 pywebview 加本机 loopback 服务复用网页，CLI 以进程内 ASGI 请求复用同一消息链。来源标记已归一化为 RunParams。下文的统一 TaskIngress、持久 run_id、按作用域的事件重放和跨端身份仍是下一阶段设计，不能把当前 SQLite 全局事件表等同于完整事件总线。
 
-Bamboo 的 CLI、Web、API 和 pywebview 桌面 App 都将请求整理为 RunParams，再交给 TaskRuntime；桌面 App 通过本机 Python 桥接，不必启动 HTTP 服务。FutureWork 当前仅有 Web/FastAPI 消息入口，CLI 只有管理命令。未来增加桌面 App、版本化开放 API，CLI 聊天可随后增加。所有入口共用 TaskFactory、TaskRuntime、三种顶层 Runtime、AgentExecutor、上下文与审批；入口代码只处理身份、协议、附件和结果呈现。
+Bamboo 的 CLI、Web、API 和 pywebview 桌面 App 都把请求整理为 RunParams，再交给 TaskRuntime。FutureWork 现在的 Web、桌面 App、开放 API 与 CLI 入口也共用同一任务链；桌面 App 以本机 loopback HTTP 服务承载页面。入口层只负责身份、请求格式和结果呈现，不负责模型规划或任务分派。更完整的 TaskIngress、事件 outbox 和跨端身份见下文目标设计。
 
 ```text
-Web HTTP/SSE ───┐
-桌面 App 本机桥 ├─> InboundAdapter ─> RunParams ─> TaskIngress ─> TaskFactory ─> TaskRuntime
-开放 API HTTP ──┤                                              ├─> AssistantRuntime
-CLI（后续）──────┘                                              ├─> DirectChatRuntime
-                                                                └─> GroupChatRuntime
-EventStore/Outbox <─ RuntimeEvent <──────────────────────────────┘
-Web/App/API Presenter <─ 按权限读取事件、消息、审批和任务状态
+Web / App / API / CLI → RunParams → TaskFactory → TaskRuntime
+                                            ├─ AgentRuntime（小未或好友）
+                                            └─ TeamRuntime（Swarm 或 Controlled）
 ```
 
 现有 `RunParams(source, target, message, client_message_id)` 渐进扩展为稳定输入对象：`source` 为 `web | desktop | public_api | cli`，另有 `request_id`、`principal_id`、`workspace_id`、`target(kind,id)`、`message`、已入库的 `attachments`（对象 ID、类型、大小、哈希）、`reply_mode`、`trace_id`、`deadline`。平台用户/会话 ID 由入口认证后映射为内部 ID。客户端传来的 grants、本机路径、配置版本与 ScopeKey 不可信；权限、配置快照和上下文游标由服务端计算并固定在 RunSpec。现有 `from_http()` 可作兼容构造器，但 TaskFactory 不访问数据库、模型或平台协议。
@@ -469,9 +447,9 @@ Web/App/API Presenter <─ 按权限读取事件、消息、审批和任务状�
 
 ### 3.6 外部 Agent 好友的执行协议（目标设计）
 
-**当前实现：** 用户可在 Agent TOML 的 `[execution]` 指定 `native`、`codex_cli`、`openclaw`、`process` 或 `http`，由 `agent_backends.toml` 的 profile 补充路径、端点和限制。AgentRuntime 将非 native 好友交给后端注册表；私聊、Swarm 群和任务步骤都复用这条分派链。Codex 使用非交互 CLI，OpenClaw 使用本机 `agent --local --json`，通用进程与 HTTP 使用 `futurework-agent-v1` JSON 请求/结果。当前外部后端只返回最终文本，暂无逐工具审批、OS 级沙箱、持久事件、取消或副作用确认；下文的协议和安全机制是目标，不能声称已全部落地。
+**当前实现：** 用户可在 Agent TOML 的 `[execution]` 指定 `native`、`codex_cli`、`openclaw`、`claude_code`、`process` 或 `http`，由 `agent_backends.toml` 的 profile 补充路径、端点和限制。AgentRuntime 将非 native 好友交给后端注册表；私聊、Swarm 群和任务步骤都复用这条分派链。Codex 使用非交互 CLI，OpenClaw 使用本机 `agent --local --json`，Claude Code 使用 `-p --output-format json`，通用进程与 HTTP 使用 `futurework-agent-v1` JSON 请求/结果。当前外部后端只返回最终文本，暂无逐工具审批、OS 级沙箱、持久事件、取消或副作用确认；下文的协议和安全机制是目标，不能声称已全部落地。
 
-OpenClaw、Codex、自编 Agent 和垂直领域 Agent 都作为配置驱动的好友接入；默认初始化仍只有小未、小T、小V和媒体群。好友的身份、能力、权限和长期人物介绍仍放 `~/.FutureWork/agents/<id>.toml` 与同目录 `<id>.md`（用户 `abilities/friends/` 使用相同 schema）。外部 Agent 是执行后端，**不是模型 provider**；内置好友仍以 `execution.kind = "native"` 走现有 AgentRuntime/ModelGateway。三种顶层 Runtime 和各自 ScopeKey 不因后端不同而变化，小未可以按能力分派，群成员也可以使用外部后端。
+OpenClaw、Codex、Claude Code、自编 Agent 和垂直领域 Agent 都作为配置驱动的好友接入；默认初始化包括小未、小T、小V、Codex、OpenClaw、Claude Code 和媒体群。好友的身份、能力、权限和长期人物介绍仍放 `~/.FutureWork/agents/<id>.toml` 与同目录 `<id>.md`（用户 `abilities/friends/` 使用相同 schema）。外部 Agent 是执行后端，**不是模型 provider**；内置好友仍以 `execution.kind = "native"` 走现有 AgentRuntime/ModelGateway。TaskRuntime 统一路由到 AgentRuntime 或 TeamRuntime，各会话的 ScopeKey 不因后端不同而变化，小未可以按能力分派，群成员也可以使用外部后端。
 
 ```text
 Assistant/Direct/Group Runtime -> AgentExecutor.run(AgentRunSpec)
@@ -578,7 +556,7 @@ FutureWork 的 SQLite 时间线和分作用域 JSONL/Markdown 是权威记录；
 
 `config/extensions.toml` 集中管理允许的来源、安装根目录、签名/哈希要求、最大包大小、MCP 连接超时、子进程 CPU/内存/网络限制、默认禁用策略和更新策略。MCP 凭证只存密钥管理层，manifest 存环境变量名或凭证引用。来自第三方的 Python Tool 或本地 MCP 进程必须在隔离环境执行；未经审查的 Skill 附带脚本不能因为读取 `SKILL.md` 就运行。
 
-**三种 Runtime 的用法：** `AssistantRuntime` 可提议安装 Skill/MCP/Workflow，并按获准配置调用规划类 Skill 和 Workflow；`DirectChatRuntime` 只解析该好友配置中启用的扩展；`GroupChatRuntime` 解析群级 Workflow/共享 Skill，再按成员各自权限解析 Tool/MCP。群配置的允许列表是上限，不会把某成员缺少的权限补给他。Workflow 步骤通过三种 Runtime 或任务 worker 调用 `AgentExecutor`，所有外部副作用均需对应审批。
+**两种 Runtime 的用法：** `AgentRuntime` 按小未或好友的配置解析扩展；小未个人会话可通过 `delegate_task` 发起协作。`TeamRuntime` 解析群级 Workflow/共享 Skill，再按成员各自权限解析 Tool/MCP。群配置的允许列表是上限，不会把某成员缺少的权限补给他。Workflow 步骤通过 AgentRuntime 或 TeamRuntime 执行，所有外部副作用均需对应审批。
 
 内置 Tool 提供计算器、文件操作、媒体处理、记忆检索、动态计划和 Skill 创建等能力；内置 Skill 仅保留 `skill-creator`。其他 Skill 由用户创建或安装，并在 Agent 配置中显式启用。内置 Workflow 的产品发布示例只引用小T和小V；MCP 先提供连接模板与客户端适配，实际外部服务器由用户连接后启用。每个内置包仍有独立 manifest、版本和测试。
 
@@ -686,7 +664,7 @@ sequenceDiagram
 
 1. **建立逐文件配置。** 定义 `~/.FutureWork/agents/`、`~/.FutureWork/teams/`、`models.toml` 的 schema、内容哈希、版本冲突检查、加载与数据库投影；保留已有原型中的 Agent 和群名称。
 2. **引入类型化上下文。** 消息和已读游标带 `scope_type`、`scope_id`、`workspace_id`，建立联合索引，所有查询改用 `ScopeKey`。检查无同名 ID 混淆和跨群读取。
-3. **建立模型网关及三种 Runtime。** 按本文设计实现协议适配器、别名注册表、预算与错误映射；先验证 OpenAI 兼容平台及 Anthropic Messages，再按平台实际差异扩展。按会话类型实现 `AssistantRuntime`、`DirectChatRuntime`、`GroupChatRuntime`，共同复用 `AgentExecutor`。
+3. **建立模型网关及两种 Runtime。** 按本文设计实现协议适配器、别名注册表、预算与错误映射；先验证 OpenAI 兼容平台及 Anthropic Messages，再按平台实际差异扩展。按个人会话与群聊实现 `AgentRuntime`、`TeamRuntime`；小未与好友共用 Agent loop，分派由工具触发。
 4. **把群 Runtime 分成两种策略。** 先给 Team 配置增加 `mode` 与预算字段、数据库投影和版本固定，再实现 `SwarmPolicy` 的成员自治和 `ControlledPolicy` 的小未群内计划。页面应显示群模式并允许创建或编辑时选择；模式切换只影响新运行。
 5. **实现配置写入闭环。** 手动创建、由小未创建、群聊创建及配置编辑都走同一个 writer + validator；高风险草案先审批。增加文件与投影对账、版本冲突和崩溃恢复测试。
 6. **建立扩展注册与安装链。** 先实现内置 Tool/Skill/Workflow 的 manifest 校验和 Runtime 解析，再接 MCP 客户端；第三方安装须完成暂存、校验、权限审批、版本固定和隔离执行。

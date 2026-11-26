@@ -3,6 +3,7 @@
 import re
 from dataclasses import dataclass
 from typing import Literal
+from futurework.kinds import ASSISTANT, FRIEND, TEAM
 
 
 ScopeKind = Literal["assistant", "agent", "group"]
@@ -17,7 +18,7 @@ class ScopeKey:
     id: str
 
     def __post_init__(self) -> None:
-        if self.kind not in {"assistant", "agent", "group"} or not SAFE_ID.fullmatch(self.id):
+        if self.kind not in {ASSISTANT, FRIEND, TEAM} or not SAFE_ID.fullmatch(self.id):
             raise ValueError("invalid memory scope")
-        if self.kind == "assistant" and self.id != "assistant":
+        if self.kind == ASSISTANT and self.id != ASSISTANT:
             raise ValueError("assistant scope ID must be assistant")

@@ -7,6 +7,7 @@ import tomllib
 
 from futurework.config_store.loader import load_user_config
 from futurework.runtime.tool_dispatch import PUBLIC_TOOLS, REPLAY_SAFE_TOOLS, SCHEMAS
+from futurework.kinds import ASSISTANT
 
 
 WEB_DIRECTORY = files("futurework").joinpath("web")
@@ -15,6 +16,7 @@ DEFAULT_CONTEXT = files("futurework").joinpath("defaults", "context.toml")
 DEFAULT_TOOLS = files("futurework").joinpath("defaults", "tools.toml")
 DEFAULT_MEDIA = files("futurework").joinpath("defaults", "media.toml")
 DEFAULT_EXTENSIONS = files("futurework").joinpath("defaults", "extensions.toml")
+DEFAULT_RUNTIME = files("futurework").joinpath("defaults", "runtime.toml")
 
 
 def _merge(base: dict, override: dict) -> dict:
@@ -35,10 +37,21 @@ def load_config(home: Path) -> dict:
     config["permissions"]["safe_default_tools"] = [name for name in config["permissions"]["safe_default_tools"] if name in SCHEMAS]
     required = set(bundled["permissions"]["approval_required_tools"]) | set(config["permissions"]["approval_required_tools"])
     config["permissions"]["approval_required_tools"] = [name for name in SCHEMAS if name in required]
-    assistant = raw["agents"]["assistant"]
+    assistant = raw["agents"][ASSISTANT]
     config["ui"]["assistant_name"] = assistant["name"]
     config["ui"]["assistant_role"] = assistant["role"]
     config["models"] = raw["models"]
+    with DEFAULT_RUNTIME.open("rb") as source:
+        runtime_defaults = tomllib.load(source)
+    config["retry"] = {}
+    for layer in ("task_retry", "agent_retry", "team_retry"):
+        policy = _merge(runtime_defaults[layer], raw["settings"]["runtime"].get(layer, {}))
+        if (type(policy.get("max_attempts")) is not int or not 1 <= policy["max_attempts"] <= 5
+                or any(type(policy.get(key)) not in (int, float) or policy[key] < 0
+                       for key in ("base_backoff_seconds", "max_backoff_seconds"))
+                or policy["base_backoff_seconds"] > policy["max_backoff_seconds"]):
+            raise ValueError(f"invalid runtime.toml [{layer}] retry policy")
+        config["retry"][layer] = policy
     config["agent_backends"] = raw["backends"]
     config["agent_execution"] = {agent_id: item.get("execution", {"kind": "native"})
                                   for agent_id, item in raw["agents"].items()}
@@ -79,7 +92,7 @@ def load_config(home: Path) -> dict:
     if any(type(policy[key]) is not int or policy[key] < 1 for key in ("max_attempts", "max_input_chars", "max_output_chars")):
         raise ValueError("invalid tool execution integer limit")
     if any(type(policy[key]) not in (int, float) or policy[key] <= 0 for key in
-           ("base_backoff_seconds", "max_backoff_seconds", "call_timeout_seconds", "approval_wait_seconds", "approval_poll_seconds")):
+           ("base_backoff_seconds", "max_backoff_seconds", "call_timeout_seconds", "delegation_timeout_seconds", "approval_wait_seconds", "approval_poll_seconds")):
         raise ValueError("invalid tool execution duration")
     if policy["max_backoff_seconds"] < policy["base_backoff_seconds"]:
         raise ValueError("tool execution max backoff must cover base backoff")
@@ -135,7 +148,7 @@ def load_config(home: Path) -> dict:
     config["assistant"] = assistant
     config["agents"] = {"seed": []}
     for agent in raw["agents"].values():
-        if agent["id"] == "assistant":
+        if agent["id"] == ASSISTANT:
             continue
         config["agents"]["seed"].append({
             "id": agent["id"], "name": agent["name"], "role": agent["role"],

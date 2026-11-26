@@ -7,16 +7,15 @@ from enum import StrEnum
 from uuid import uuid4
 
 from futurework.runtime.run_params import RunParams
+from futurework.kinds import ASSISTANT, FRIEND, TEAM, SWARM, CONTROLLED, KINDS
 
 
 class TaskKind(StrEnum):
     """A separate execution path for each supported conversation request."""
 
-    ASSISTANT_CHAT = "assistant_chat"
-    ASSISTANT_DELEGATION = "assistant_delegation"
-    AGENT_CHAT = "agent_chat"
-    GROUP_SWARM = "group_swarm"
-    GROUP_CONTROLLED = "group_controlled"
+    AGENT_CHAT = KINDS["task_kind"]["agent_chat"]
+    GROUP_SWARM = KINDS["task_kind"]["group_swarm"]
+    GROUP_CONTROLLED = KINDS["task_kind"]["group_controlled"]
 
 
 @dataclass(slots=True)
@@ -30,22 +29,18 @@ class Task:
 
 
 class TaskFactory:
-    """Choose a task type based on target scope and assistant intent."""
+    """Choose an Agent or Team loop solely from the selected conversation."""
 
-    def create(self, params: RunParams, *, assistant_intent: str | None = None) -> Task:
+    def create(self, params: RunParams) -> Task:
         """Build a task object; routing and execution happen elsewhere."""
         target = params.target
-        if target.kind == "assistant":
-            if assistant_intent not in {"chat", "task"}:
-                raise ValueError("assistant intent must be chat or task")
-            kind = TaskKind.ASSISTANT_CHAT if assistant_intent == "chat" else TaskKind.ASSISTANT_DELEGATION
-        elif target.kind == "agent":
+        if target.kind in {ASSISTANT, FRIEND}:
             kind = TaskKind.AGENT_CHAT
-        elif target.kind == "group":
+        elif target.kind == TEAM:
             mode = target.record["mode"]
-            if mode not in {"swarm", "controlled"}:
+            if mode not in {SWARM, CONTROLLED}:
                 raise ValueError("group mode must be swarm or controlled")
-            kind = TaskKind.GROUP_SWARM if mode == "swarm" else TaskKind.GROUP_CONTROLLED
+            kind = TaskKind.GROUP_SWARM if mode == SWARM else TaskKind.GROUP_CONTROLLED
         else:
             raise ValueError(f"unsupported conversation kind: {target.kind}")
         return Task(id=str(uuid4()), kind=kind, params=params)

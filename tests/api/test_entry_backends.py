@@ -91,7 +91,9 @@ def test_codex_and_openclaw_command_contracts(tmp_path):
         'elif args[0] == "exec":\n'
         '    pathlib.Path(args[args.index("-o") + 1]).write_text("Codex 完成")\n'
         'elif args[0] == "agent":\n'
-        '    print(json.dumps({"result": {"payloads": [{"text": "OpenClaw 完成"}]}}))\n',
+        '    print(json.dumps({"result": {"payloads": [{"text": "OpenClaw 完成"}]}}))\n'
+        'elif args[0] == "-p":\n'
+        '    print(json.dumps({"result": "Claude Code 完成"}))\n',
         encoding="utf-8",
     )
     cli.chmod(0o700)
@@ -99,7 +101,10 @@ def test_codex_and_openclaw_command_contracts(tmp_path):
     profile = {"executable": str(cli), "workdir": str(tmp_path), "timeout_seconds": 5}
     codex = SubprocessBackend("codex_cli", profile)
     claw = SubprocessBackend("openclaw", profile)
+    claude = SubprocessBackend("claude_code", profile)
     assert asyncio.run(codex.health())["ok"]
     assert asyncio.run(claw.health())["ok"]
+    assert asyncio.run(claude.health())["ok"]
     assert asyncio.run(codex.run(request)) == "Codex 完成"
     assert asyncio.run(claw.run(request)) == "OpenClaw 完成"
+    assert asyncio.run(claude.run(request)) == "Claude Code 完成"

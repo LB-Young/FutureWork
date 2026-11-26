@@ -13,6 +13,7 @@ from futurework.contexts.types import ScopeKey
 from tests.support import sample_home
 from futurework.integrations.model_gateway.types import ModelResult
 from futurework.runtime.agent_executor import AgentRuntime
+from futurework.runtime.agent_executor import AgentResponse
 
 
 def _send(client, conversation_id, body):
@@ -25,14 +26,13 @@ def _records(path):
 
 
 def test_separate_jsonl_and_experience_survive_restart(tmp_path, monkeypatch):
-    async def classify(self, text, history):
-        return "chat"
-
     async def reply(self, agent, history, scope=None):
         return f"{agent['name']} 已完成"
 
-    monkeypatch.setattr("futurework.runtime.assistant_runtime.AssistantRuntime.classify", classify)
     monkeypatch.setattr("futurework.model.AgentRuntime.respond", reply)
+    async def direct_reply(self, agent, history, scope=None):
+        return AgentResponse(f"{agent['name']} 已完成")
+    monkeypatch.setattr("futurework.model.AgentRuntime.respond_with_result", direct_reply)
     home = sample_home(tmp_path / "home")
     client = TestClient(create_app(home))
     assert _send(client, "assistant", "助理私事").status_code == 202

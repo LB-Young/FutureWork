@@ -5,6 +5,7 @@ from uuid import uuid4
 
 from futurework.database import utc_now
 from futurework.contexts.types import ScopeKey
+from futurework.kinds import SWARM, CONTROLLED, TEAM
 
 
 class GroupServiceError(Exception):
@@ -30,7 +31,7 @@ class GroupService:
         members = list(dict.fromkeys(member_ids))
         if not name.strip() or len(name.strip()) > self.config["limits"]["max_group_name_chars"] or len(members) > self.config["limits"]["max_group_members"]:
             raise GroupServiceError(422, "invalid group name or member count")
-        if mode not in {"swarm", "controlled"}:
+        if mode not in {SWARM, CONTROLLED}:
             raise GroupServiceError(422, "invalid group mode")
         agents = [self.database.agent(member) for member in members]
         if any(not agent or agent["status"] != "active" for agent in agents):
@@ -47,5 +48,5 @@ class GroupService:
             write_config("teams", group)
             self.database.emit(connection, "group.created", {"group_id": group_id})
         if self.memory_store is not None:
-            self.memory_store.ensure_profile(ScopeKey("group", group_id))
+            self.memory_store.ensure_profile(ScopeKey(TEAM, group_id))
         return group

@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from uuid import uuid4
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -25,9 +25,11 @@ from futurework.runtime.task_runtime import RequestConflict, TaskRuntime
 from futurework.services.agent_service import AgentService, AgentServiceError
 from futurework.services.group_service import GroupService, GroupServiceError
 from futurework.services.message_service import MessageService
+from futurework.services.delegation_service import DelegationService
 from futurework.workers.task_worker import TaskRecoveryWorker
 from futurework.extension_system.workflow_runner import WorkflowRunner
 from futurework.contexts.types import ScopeKey
+from futurework.kinds import ASSISTANT, FRIEND, TEAM, CONTROLLED
 
 
 def new_id() -> str:
@@ -58,7 +60,7 @@ class DecisionInput(BaseModel):
 class GroupInput(BaseModel):
     name: str = Field(min_length=1)
     member_ids: list[str] = Field(min_length=1)
-    mode: str = "controlled"
+    mode: str = CONTROLLED
 
 
 class ReadInput(BaseModel):
@@ -100,14 +102,14 @@ def create_app(home: str | Path | None = None, db_path: str | Path | None = None
     app.state.home = user_home
 
     def get_conversation(conversation_id: str) -> dict:
-        if conversation_id == "assistant":
-            return {"id": "assistant", "name": config["ui"]["assistant_name"], "kind": "assistant"}
+        if conversation_id == ASSISTANT:
+            return {"id": ASSISTANT, "name": config["ui"]["assistant_name"], "kind": ASSISTANT}
         agent = database.agent(conversation_id)
         if agent and agent["status"] == "active":
-            return {**agent, "kind": "agent"}
+            return {**agent, "kind": FRIEND}
         group = database.group(conversation_id)
         if group and group["status"] == "active":
-            return {**group, "kind": "group"}
+            return {**group, "kind": TEAM}
         raise HTTPException(404, "conversation not found")
 
     message_service = MessageService(database)
@@ -124,14 +126,17 @@ def create_app(home: str | Path | None = None, db_path: str | Path | None = None
     task_runtime = TaskRuntime(database=database, config=config, config_store=config_store,
                                message_service=message_service, agent_service=agent_service,
                                agent_runtime=agent_runtime)
+    agent_runtime.delegation_service = DelegationService(
+        database, config, config_store, agent_service, message_service,
+        agent_runtime, task_runtime.team)
     recovery_worker = TaskRecoveryWorker(database, config, message_service, task_runtime)
     workflow_runner = WorkflowRunner(user_home, config["workflow"])
     scheduler = ScheduleStore(user_home, config["schedule"])
 
     async def scheduled_request(job: dict) -> None:
-        target = {"id": "assistant", "kind": "assistant", "name": config["ui"]["assistant_name"]}
+        target = {"id": ASSISTANT, "kind": ASSISTANT, "name": config["ui"]["assistant_name"]}
         params = RunParams.from_http(target, job["prompt"], f"schedule:{job['id']}:{job['last_run_at']}")
-        await task_runtime.handle(params, lambda task: asyncio.create_task(task_runtime.execute_assigned(task)))
+        await task_runtime.handle(params)
 
     async def schedule_loop() -> None:
         while True:
@@ -181,7 +186,7 @@ def create_app(home: str | Path | None = None, db_path: str | Path | None = None
             agent = database.agent(agent_id)
             if not agent or agent["status"] != "active":
                 raise ValueError(f"workflow Agent {agent_id} is unavailable")
-            answer = await agent_runtime.respond(agent, [{"from": "me", "text": prompt}], ScopeKey("agent", agent_id))
+            answer = await agent_runtime.respond(agent, [{"from": "me", "text": prompt}], ScopeKey(FRIEND, agent_id))
             with database.transaction() as connection:
                 message_service.insert(connection, agent_id, "system", "Workflow", prompt)
                 message_service.insert(connection, agent_id, "agent", agent["name"], answer)
@@ -227,9 +232,9 @@ def create_app(home: str | Path | None = None, db_path: str | Path | None = None
 
     @app.get("/api/v1/conversations")
     def conversations():
-        return [{"id": "assistant", "kind": "assistant", "name": config["ui"]["assistant_name"]}] + [
-            {"id": item["id"], "kind": "agent", "name": item["name"]} for item in database.agents()
-        ] + [{"id": item["id"], "kind": "group", "name": item["name"]} for item in database.groups()]
+        return [{"id": ASSISTANT, "kind": ASSISTANT, "name": config["ui"]["assistant_name"]}] + [
+            {"id": item["id"], "kind": FRIEND, "name": item["name"]} for item in database.agents()
+        ] + [{"id": item["id"], "kind": TEAM, "name": item["name"]} for item in database.groups()]
 
     @app.post("/api/v1/groups", status_code=201)
     def create_group(body: GroupInput):
@@ -295,14 +300,13 @@ def create_app(home: str | Path | None = None, db_path: str | Path | None = None
         return FileResponse(path, filename=filename, content_disposition_type="inline")
 
     @app.post("/api/v1/conversations/{conversation_id}/messages", status_code=202)
-    async def send_message(conversation_id: str, body: MessageInput, background_tasks: BackgroundTasks):
+    async def send_message(conversation_id: str, body: MessageInput):
         conversation = get_conversation(conversation_id)
         params = RunParams.from_platform(source, conversation, body.body, body.client_message_id)
         if not params.message or len(params.message) > config["limits"]["max_message_chars"]:
             raise HTTPException(422, "message is empty or too long")
         try:
-            result = await task_runtime.handle(
-                params, lambda task: background_tasks.add_task(task_runtime.execute_assigned, task))
+            result = await task_runtime.handle(params)
         except RequestConflict as error:
             raise HTTPException(409, str(error)) from error
         return result.as_response()

@@ -7,7 +7,7 @@ personality = "耐心、清晰、主动，遇到不确定的任务先核对目�
 responsibilities = "理解用户目标，制定计划，选择或创建合适的 Agent，并汇总进度与结果。"
 kind = "assistant"
 status = "active"
-tools = ["calculator", "read", "glob", "grep", "skill_load", "skill_create", "plan_update", "plan_check", "schedule_create", "schedule_list"]
+tools = ["delegate_task", "calculator", "read", "glob", "grep", "skill_load", "skill_create", "plan_update", "plan_check", "schedule_create", "schedule_list"]
 
 [model]
 id = "default_fast"

@@ -12,6 +12,7 @@ from pathlib import Path
 
 from futurework.contexts.summarizer import ExperienceSummarizer
 from futurework.contexts.types import ScopeKey
+from futurework.kinds import ASSISTANT, FRIEND, TEAM
 
 
 class MemoryStore:
@@ -35,15 +36,15 @@ class MemoryStore:
 
     def directory(self, scope: ScopeKey) -> Path:
         """Resolve one validated scope below the user memory directory."""
-        if scope.kind == "assistant":
+        if scope.kind == ASSISTANT:
             return self.home / "memory" / "assistant"
-        category = "agents" if scope.kind == "agent" else "teams"
+        category = "agents" if scope.kind == FRIEND else "teams"
         return self.home / "memory" / category / scope.id
 
     def profile_path(self, scope: ScopeKey) -> Path:
         """Keep long-term identity beside the matching TOML definition."""
-        category = "teams" if scope.kind == "group" else "agents"
-        custom = self.home / "abilities" / ("teams" if scope.kind == "group" else "friends") / f"{scope.id}.toml"
+        category = "teams" if scope.kind == TEAM else "agents"
+        custom = self.home / "abilities" / ("teams" if scope.kind == TEAM else "friends") / f"{scope.id}.toml"
         if custom.is_file():
             return custom.with_suffix(".md")
         return self.home / category / f"{scope.id}.md"
@@ -69,7 +70,7 @@ class MemoryStore:
             definition = tomllib.load(handle)
         name = definition.get("name", scope.id)
         role = definition.get("role", "、".join(definition.get("members", [])))
-        if scope.kind == "group":
+        if scope.kind == TEAM:
             content = (f"# {name} · 群聊长期记忆\n\n"
                        f"- 群 ID：{scope.id}\n- 主要职责：{definition.get('purpose', role) or '待补充'}\n"
                        f"- 协作模式：{definition.get('mode', 'controlled')}\n"
@@ -94,13 +95,13 @@ class MemoryStore:
         directory = self.directory(scope)
         directory.mkdir(parents=True, exist_ok=True, mode=0o700)
         (directory / "messages.jsonl").touch(exist_ok=True)
-        target = directory / ("overview.md" if scope.kind == "group" else "experiences.md")
+        target = directory / ("overview.md" if scope.kind == TEAM else "experiences.md")
         if not target.exists():
-            heading = "# 群聊话题与经验索引\n\n" if scope.kind == "group" else "# 对话经验与结果\n\n"
+            heading = "# 群聊话题与经验索引\n\n" if scope.kind == TEAM else "# 对话经验与结果\n\n"
             with suppress(FileExistsError):
                 with target.open("x", encoding="utf-8") as handle:
                     handle.write(heading)
-        if scope.kind == "group":
+        if scope.kind == TEAM:
             (directory / "topics").mkdir(exist_ok=True, mode=0o700)
 
     def sync(self, connection) -> None:
@@ -142,7 +143,7 @@ class MemoryStore:
         marker = f"<!-- source: {message['id']} -->"
         excerpt = self.summarizer.summarize(message["text"])
         request = user_text.strip().replace("\n", " ")[:self.settings["max_topic_chars"]]
-        if scope.kind == "group":
+        if scope.kind == TEAM:
             topic = request or "群聊协作"
             slug = self._topic_slug(topic)
             topic_dir = self.directory(scope) / "topics" / slug
@@ -199,7 +200,7 @@ class MemoryStore:
             profile = self.profile_path(ScopeKey("agent", actor_id))
             if profile.is_file():
                 sections.append(f"【{profile.name}】\n{profile.read_text(encoding='utf-8')}")
-        if scope.kind == "group":
+        if scope.kind == TEAM:
             directory = self.directory(scope)
             profile = self.profile_path(scope)
             if actor_id != "assistant" and profile.is_file():

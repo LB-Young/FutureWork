@@ -1,0 +1,14 @@
+# Built-in Claude Code friend; uses the local noninteractive CLI.
+schema_version = 1
+id = "claude_code"
+name = "Claude Code"
+role = "代码分析、实现与审查"
+kind = "friend"
+status = "active"
+tools = []
+[capabilities]
+"engineering.code" = 0.95
+"coding.review" = 0.95
+[execution]
+kind = "claude_code"
+profile = "claude_code_local"
