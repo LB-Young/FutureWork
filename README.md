@@ -2,7 +2,7 @@
 
 FutureWork 是一个可以在本机安装和运行的 Agent 团队应用。界面采用好友、群聊和消息收件箱的组织方式：你与个人助理「小未」交谈，小未把任务分给擅长对应能力的 Agent 好友；好友之间也可以组成群聊。除了你，好友和群成员都是 Agent。
 
-本项目仍在开发中。当前版本已经有可运行的网页、Python API、SQLite 持久化、多平台模型调用、基础工具调用和两种群聊模式。文档中的“目标架构”包含尚未完成的能力；使用前请先阅读下文的[当前能力与边界](#当前能力与边界)。
+当前版本提供网页、桌面 App 入口、终端聊天入口、带密钥的无页面 API、SQLite 持久化、多平台模型调用、通用工具和两种群聊模式。外部 Agent 好友可通过本机 Codex/OpenClaw CLI、JSONL 进程协议或 HTTP 协议运行；需要用户主动配置。文档中的“目标架构”仍包含后续能力；使用前请先阅读下文的[当前能力与边界](#当前能力与边界)。
 
 ## 目录导航
 
@@ -14,6 +14,7 @@ FutureWork 是一个可以在本机安装和运行的 Agent 团队应用。界�
 - [工具、权限与审批](#工具权限与审批)
 - [用户数据目录](#用户数据目录)
 - [页面与接口](#页面与接口)
+- [多种入口与外部 Agent 好友](#多种入口与外部-agent-好友)
 - [开发、测试与常见问题](#开发测试与常见问题)
 
 ## 当前能力与边界
@@ -21,9 +22,9 @@ FutureWork 是一个可以在本机安装和运行的 Agent 团队应用。界�
 | 模块 | 当前实现 |
 | --- | --- |
 | 个人助理 | 「小未」区分聊天和任务；任务按配置的关键词拆分、匹配 Agent，缺少对应能力时创建 Agent 配置并分派。 |
-| 对话执行入口 | HTTP 消息先归一化为 `RunParams`，再由 `TaskFactory` 创建五种类型之一的 `Task`；`TaskRuntime` 按类型执行，重复消息 ID 不再重复分类或执行。 |
+| 对话执行入口 | Web、无页面 API、桌面 App 和 CLI 都进入相同的 `RunParams → TaskFactory → TaskRuntime` 链；重复消息 ID 不再重复分类或执行。 |
 | 对象调用链 | `TaskRuntime` 持有助理、私聊、群聊 Runtime；`AgentRuntime` 持有模型网关，单次运行创建授权工具注册表；API 持有消息、Agent 和群聊服务对象。 |
-| Agent 好友 | 每位好友由独立 TOML 定义，拥有自己的模型、能力、工具授权和私聊历史。 |
+| Agent 好友 | 每位好友由独立 TOML 定义，拥有自己的能力、权限和私聊历史；可选内置模型、Codex、OpenClaw、JSONL 进程或 HTTP 执行后端。 |
 | 初始成员 | 全新用户目录仅预置小未、小T、小V和一个「媒体群」；其他好友与群聊由用户创建或由小未按任务需要创建。 |
 | 群聊 | `swarm` 模式由成员轮流响应；`controlled` 模式由小未选择成员，必要时汇总多人回复。群聊读取本群自己的历史。 |
 | 模型 | 支持 OpenAI 兼容文本接口、Anthropic Messages 接口，以及 Bamboo 风格的公司 HTTP 模型代理；预置多家云平台与本地部署示例。只有选中的模型才需要可用。 |
@@ -367,6 +368,61 @@ Workflow 可以放在 `~/.FutureWork/abilities/workflows/<ID>/workflow.toml`，�
 模型可调用 `memory_search(query, limit?, group_id?)`。小未和好友私聊先搜索各自的 `experiences.md`，没有相关命中再查各自的 `messages.jsonl`。群聊成员先查本群 `topics/*/<成员ID>.md`，再查 `overview.md` 和本群其他成员的经验文件；索引命中时会附带话题下的成员经验。仍未命中时，先查本人在本群的原始消息，再查本群全部原始消息。返回值是 JSON，包含命中层级、文件相对路径、内容、评分和可用的源消息 ID。好友私聊无法指定其他群；小未私聊只有明确指定已配置的群 ID 才能检索该群。当前检索为关键词匹配，不是向量语义搜索；中文用连续双字片段匹配。`context.toml [memory]` 中的 `search_*` 参数控制开关、文件/日志扫描量、结果数和长度。
 
 运行时按当前模型别名的 `context_window`、`max_output_tokens`（未填写时用 `context.toml [compaction]` 的默认值）、完整消息和工具定义估算 Token。达到触发比例或剩余预算阈值时，保留最近消息与完整工具调用轮次，将更早的消息交给当前模型总结为一条摘要；模型失败时使用有限长度的原文摘录。摘要仅替换本次模型请求中的旧消息，不会修改 SQLite 历史或 `messages.jsonl`。压缩记录写入当前作用域的 `compactions.jsonl`，包含参与者、源消息 ID、原文哈希、摘要、方法和压缩前后估算量。小未、好友和群聊各有独立目录。`[compaction]` 提供触发比例、窗口默认值、输出预留、最近消息数量、压缩轮数和摘要长度等配置。估算器按 UTF-8 字节数估算，实际平台 Token 计数可能不同；如果固定的系统提示词或最近消息本身超过模型窗口，需要扩大模型窗口或缩短输入。
+
+## 多种入口与外部 Agent 好友
+
+四种入口使用同一套消息、任务、群聊和审批服务。Web 入口运行 `futurework serve`；桌面入口使用 `futurework app`，它在本机启动同一服务并用 pywebview 打开原生窗口。桌面依赖随 `pip install -e .` 一同安装。桌面版使用 `app.toml [server]` 中的端口；若端口已经被别的服务占用，先更换端口。桌面窗口与 Web 共享相同的用户目录和消息数据库。
+
+终端单次对话使用：
+
+```bash
+futurework chat --conversation assistant --message "帮我梳理今天的工作"
+futurework chat --conversation image --message "介绍你的职责"
+```
+
+无页面 API 使用 `futurework api` 启动，仍监听 `app.toml [server]` 指定的本机地址和端口，但不会挂载网页静态文件。启动前须设置 `FUTUREWORK_API_KEY`，或在 `app.toml [entrypoints.api]` 的 `key_env` 指定另一个环境变量名。所有业务接口都要求 `Authorization: Bearer <key>`。例如：
+
+```bash
+export FUTUREWORK_API_KEY="请设置一个随机长密钥"
+futurework api
+curl -H "Authorization: Bearer $FUTUREWORK_API_KEY" http://127.0.0.1:8000/api/v1/agents
+```
+
+外部好友**不会在初始化时自动出现**。在 `~/.FutureWork/agents/` 添加一个 TOML 文件，文件名与 `id` 相同；`~/.FutureWork/agent_backends.toml` 则定义执行 profile。保存后运行 `futurework doctor` 并重启服务。可以请求 `GET /api/v1/agents/<id>/health` 检查执行器；OpenClaw 会运行自身的 `config validate`，Codex 与通用进程会检查可执行文件。下面的 Codex 示例使用只读沙箱；若需要写文件，改为 `sandbox = "workspace-write"` 并确认工作目录：
+
+```toml
+# ~/.FutureWork/agent_backends.toml
+[profiles.local_codex]
+executable = "codex"
+workdir = "/绝对路径/已授权项目"
+sandbox = "read-only"
+timeout_seconds = 120
+max_input_chars = 40000
+max_output_bytes = 1000000
+history_messages = 20
+environment = ["PATH", "HOME", "LANG", "TMPDIR", "CODEX_HOME"]
+```
+
+```toml
+# ~/.FutureWork/agents/coder.toml
+schema_version = 1
+id = "coder"
+name = "代码助手"
+role = "分析代码和给出修改建议"
+kind = "friend"
+status = "active"
+[capabilities]
+"engineering.code" = 0.95
+[execution]
+kind = "codex_cli"
+profile = "local_codex"
+```
+
+OpenClaw 配置把 `kind` 改为 `openclaw`，profile 的 `executable` 指向 `openclaw`。执行器使用 `openclaw agent --local --json`，按好友和会话作用域创建不同 session ID，不加 `--deliver`，因此不会向外部聊天渠道发送结果。若 OpenClaw 使用 nvm 安装且启动进程的 Node 版本偏旧，执行器会优先使用 OpenClaw 可执行文件同目录的 Node；也可在 profile 填 `node_bin = "/绝对路径/node所在目录"`。OpenClaw 本机配置、模型凭据和 Gateway 能否正常工作仍由 OpenClaw 自身决定。
+
+自编 Agent 可使用 `kind = "process"`：profile 填 `executable` 与 `arguments = ["/绝对路径/agent.py"]`。FutureWork 向标准输入写一行 JSON，包含 `protocol: futurework-agent-v1`、`agent_id`、`scope: {type,id}`、`message` 和当前会话的 `history`；进程从标准输出返回一行 `{"text":"回复内容"}`。HTTP Agent 使用 `kind = "http"`，profile 填固定的 `endpoint`，接收相同 JSON 并返回相同结构；明文 HTTP 仅允许环回地址，远端须使用 HTTPS。需要鉴权时填 `auth_env = "某环境变量名"`，请求会携带对应 Bearer 凭据。profile 可覆盖 `agent_backends.toml [defaults]` 中的超时、历史条数、输入和输出上限。Codex/OpenClaw/自编 Agent 都不会自动读取 FutureWork 的其他私聊或群聊历史，FutureWork 仅把当前作用域的有限历史传给它们。
+
+外部进程以当前操作系统用户身份运行，因此可访问该用户本来有权访问的文件和网络。FutureWork 当前能限制传给外部 Agent 的上下文、工作目录、执行时间和返回大小，**不能把这些配置当作操作系统级文件或网络隔离**。请只配置可信的本机程序，并使用 Codex 自带的沙箱选项或自行在容器中运行外部程序。OpenClaw 和通用进程后端内部工具调用不会进入 FutureWork 的逐工具审批层。
 
 ## 页面与接口
 

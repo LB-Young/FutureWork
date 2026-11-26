@@ -39,6 +39,9 @@ def load_config(home: Path) -> dict:
     config["ui"]["assistant_name"] = assistant["name"]
     config["ui"]["assistant_role"] = assistant["role"]
     config["models"] = raw["models"]
+    config["agent_backends"] = raw["backends"]
+    config["agent_execution"] = {agent_id: item.get("execution", {"kind": "native"})
+                                  for agent_id, item in raw["agents"].items()}
     with DEFAULT_MEDIA.open("rb") as source:
         media_defaults = tomllib.load(source)
     user_media = home / "media.toml"
@@ -139,7 +142,7 @@ def load_config(home: Path) -> dict:
             "icon": agent.get("icon", agent["name"][0]),
             "color": agent.get("color", config["ui"]["default_agent_color"]),
             "ink": agent.get("ink", config["ui"]["default_agent_ink"]),
-            "model": agent["model"]["id"],
+            "model": agent.get("model", {}).get("id", config["model"]["default_model"]),
             "tools": agent.get("tools", agent.get("permissions", {}).get("tools", [])),
             "capabilities": agent.get("capabilities", {}),
             "approval": agent.get("approval", True), "status": agent.get("status", "active"),

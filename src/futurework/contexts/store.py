@@ -7,6 +7,7 @@ import json
 import re
 import threading
 import tomllib
+from contextlib import suppress
 from pathlib import Path
 
 from futurework.contexts.summarizer import ExperienceSummarizer
@@ -83,11 +84,9 @@ class MemoryStore:
                        f"- 擅长能力：{capabilities or '待补充'}\n\n"
                        "## 稳定偏好与工作方式\n\n待补充。\n")
         target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        try:
+        with suppress(FileExistsError):
             with target.open("x", encoding="utf-8") as handle:
                 handle.write(content)
-        except FileExistsError:
-            pass
         self._ensure_scope_files(scope)
 
     def _ensure_scope_files(self, scope: ScopeKey) -> None:
@@ -98,11 +97,9 @@ class MemoryStore:
         target = directory / ("overview.md" if scope.kind == "group" else "experiences.md")
         if not target.exists():
             heading = "# 群聊话题与经验索引\n\n" if scope.kind == "group" else "# 对话经验与结果\n\n"
-            try:
+            with suppress(FileExistsError):
                 with target.open("x", encoding="utf-8") as handle:
                     handle.write(heading)
-            except FileExistsError:
-                pass
         if scope.kind == "group":
             (directory / "topics").mkdir(exist_ok=True, mode=0o700)
 

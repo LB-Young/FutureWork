@@ -68,11 +68,10 @@ class MemoryRetriever:
         limit = min(limit, self.settings["search_max_results"])
         if group_id:
             selected = ScopeKey("group", group_id)
-            if scope.kind == "group" and scope.id == group_id:
-                pass
-            elif scope.kind == "assistant" and actor_id == "assistant" and self.store.profile_path(selected).with_suffix(".toml").is_file():
-                pass
-            else:
+            own_group = scope.kind == "group" and scope.id == group_id
+            assistant_group = (scope.kind == "assistant" and actor_id == "assistant"
+                               and self.store.profile_path(selected).with_suffix(".toml").is_file())
+            if not (own_group or assistant_group):
                 raise PermissionError("group memory is outside the current scope")
             scope = selected
         root = self.store.directory(scope)

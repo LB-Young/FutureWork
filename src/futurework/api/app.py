@@ -81,7 +81,8 @@ class WorkflowInput(BaseModel):
     input: str = Field(min_length=1)
 
 
-def create_app(home: str | Path | None = None, db_path: str | Path | None = None) -> FastAPI:
+def create_app(home: str | Path | None = None, db_path: str | Path | None = None,
+               *, include_web: bool = True, source: str = "web") -> FastAPI:
     user_home = ensure_home(home)
     config = load_config(user_home)
     config_store = ConfigStore(user_home)
@@ -201,6 +202,21 @@ def create_app(home: str | Path | None = None, db_path: str | Path | None = None
             raise HTTPException(404, "agent not found")
         return result
 
+    @app.get("/api/v1/agents/{agent_id}/health")
+    async def agent_health(agent_id: str):
+        """Probe a configured external backend without running a user task."""
+        record = database.agent(agent_id)
+        if not record:
+            raise HTTPException(404, "agent not found")
+        backend = agent_runtime.backends.for_agent(agent_id)
+        if backend is None:
+            return {"agent_id": agent_id, "kind": "native", "ok": True, "model_probed": False}
+        try:
+            status = await backend.health()
+        except (OSError, RuntimeError, ValueError, asyncio.TimeoutError) as error:
+            status = {"ok": False, "error": f"{type(error).__name__}: {error}"}
+        return {"agent_id": agent_id, "kind": config["agent_execution"][agent_id]["kind"], **status}
+
     @app.post("/api/v1/agents", status_code=201)
     def create_agent(body: AgentInput):
         return agent_service.create_agent(body.name, body.role)
@@ -281,7 +297,7 @@ def create_app(home: str | Path | None = None, db_path: str | Path | None = None
     @app.post("/api/v1/conversations/{conversation_id}/messages", status_code=202)
     async def send_message(conversation_id: str, body: MessageInput, background_tasks: BackgroundTasks):
         conversation = get_conversation(conversation_id)
-        params = RunParams.from_http(conversation, body.body, body.client_message_id)
+        params = RunParams.from_platform(source, conversation, body.body, body.client_message_id)
         if not params.message or len(params.message) > config["limits"]["max_message_chars"]:
             raise HTTPException(422, "message is empty or too long")
         try:
@@ -349,5 +365,6 @@ def create_app(home: str | Path | None = None, db_path: str | Path | None = None
                 await asyncio.sleep(config["server"]["event_poll_seconds"])
         return StreamingResponse(stream(), media_type="text/event-stream", headers={"Cache-Control": "no-cache"})
 
-    app.mount("/", StaticFiles(directory=str(WEB_DIRECTORY), html=True), name="frontend")
+    if include_web:
+        app.mount("/", StaticFiles(directory=str(WEB_DIRECTORY), html=True), name="frontend")
     return app

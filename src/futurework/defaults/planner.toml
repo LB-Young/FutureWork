@@ -1,4 +1,4 @@
-# Task planning limits and capability vocabulary placeholder.
+# Task planning limits used by the task planner.
 schema_version = 1
 
 [limits]

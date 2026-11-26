@@ -34,10 +34,18 @@ class RunParams:
     client_message_id: str
 
     @classmethod
+    def from_platform(cls, source: str, conversation: dict, body: str,
+                      client_message_id: str) -> "RunParams":
+        """Normalize any installed entry adapter to the same task input."""
+        if source not in {"web", "desktop", "public_api", "cli", "schedule", "http"}:
+            raise ValueError(f"unsupported request source: {source}")
+        return cls(source=source, target=ConversationTarget.from_record(conversation),
+                   message=body.strip(), client_message_id=client_message_id)
+
+    @classmethod
     def from_http(cls, conversation: dict, body: str, client_message_id: str) -> "RunParams":
         """Normalize the HTTP payload once before any model or task work."""
-        return cls(source="http", target=ConversationTarget.from_record(conversation),
-                   message=body.strip(), client_message_id=client_message_id)
+        return cls.from_platform("http", conversation, body, client_message_id)
 
     @property
     def conversation_id(self) -> str:

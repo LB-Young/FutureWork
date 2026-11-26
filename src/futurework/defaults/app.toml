@@ -8,6 +8,9 @@ event_heartbeat_seconds = 15
 event_batch_size = 100
 message_history_limit = 100
 
+[entrypoints.api]
+key_env = "FUTUREWORK_API_KEY"
+
 [ui]
 assistant_name = "小未"
 assistant_role = "个人助理"

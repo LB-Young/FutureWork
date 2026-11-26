@@ -12,6 +12,8 @@ from futurework.integrations.model_gateway.types import ModelRequest
 from futurework.runtime.run_spec import AgentRun
 from futurework.runtime.tool_dispatch import ToolRegistry
 from futurework.runtime.tool_execution import ToolCall, ToolExecutionLayer
+from futurework.integrations.agent_backends import AgentBackendRegistry
+from futurework.integrations.agent_backends.base import AgentRequest
 
 
 class AgentRuntime:
@@ -25,6 +27,7 @@ class AgentRuntime:
         self.memory_store.ensure_profiles()
         self.compactor = ContextCompactor(config, self.model_gateway, self.memory_store)
         self.approval_store = approval_store
+        self.backends = AgentBackendRegistry(config)
 
     async def respond(self, agent: dict, history: list[dict], scope: ScopeKey | None = None) -> str:
         """Convert persistence records into a scoped execution object."""
@@ -32,6 +35,14 @@ class AgentRuntime:
 
     async def run(self, run: AgentRun) -> str:
         """Ask the configured provider using only this run's history and grants."""
+        backend = self.backends.for_agent(run.agent_id)
+        if backend is not None:
+            latest_user = next((item for item in reversed(run.history) if item.get("from") == "me"), None)
+            return await backend.run(AgentRequest(
+                agent_id=run.agent_id, name=run.name, role=run.role,
+                scope_type=run.scope.kind, scope_id=run.scope.id,
+                prompt=latest_user["text"] if latest_user else (run.history[-1]["text"] if run.history else ""),
+                history=run.history))
         settings = self.config["model"]
         if settings["provider"] == "mock":
             return settings["mock_reply"]

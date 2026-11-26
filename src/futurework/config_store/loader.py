@@ -39,6 +39,35 @@ def load_user_config(home: Path) -> dict:
     if server.get("host") not in {"127.0.0.1", "localhost", "::1"} or not isinstance(server.get("port"), int) or not 1 <= server["port"] <= 65535:
         raise ValueError(f"Invalid loopback server configuration in {home / 'app.toml'}")
     models = read_toml(home / "models.toml")
+    backends_path = home / "agent_backends.toml"
+    backends = read_toml(backends_path) if backends_path.exists() else {"profiles": {}}
+    if not isinstance(backends.get("profiles"), dict):
+        raise ValueError("agent_backends.toml needs [profiles.*] tables")
+    defaults = backends.get("defaults", {})
+    if not isinstance(defaults, dict):
+        raise ValueError("agent_backends.toml [defaults] must be a table")
+    for name, profile in backends["profiles"].items():
+        if not isinstance(profile, dict):
+            raise ValueError(f"Invalid Agent backend profile: {name}")
+        profile = {**defaults, **profile}
+        if "endpoint" in profile:
+            endpoint = urlsplit(profile["endpoint"])
+            if endpoint.scheme not in {"http", "https"} or not endpoint.hostname or endpoint.username or endpoint.password or endpoint.fragment or endpoint.query:
+                raise ValueError(f"Invalid Agent backend endpoint: {name}")
+            if endpoint.scheme == "http" and endpoint.hostname not in {"127.0.0.1", "localhost", "::1"}:
+                raise ValueError(f"HTTP Agent backend must use loopback: {name}")
+        if "arguments" in profile and (not isinstance(profile["arguments"], list)
+                                       or any(not isinstance(arg, str) for arg in profile["arguments"])):
+            raise ValueError(f"Agent backend arguments must be a string array: {name}")
+        if "environment" in profile and (not isinstance(profile["environment"], list)
+                                          or any(not isinstance(key, str) or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key)
+                                                 for key in profile["environment"])):
+            raise ValueError(f"Agent backend environment must list variable names: {name}")
+        if "auth_env" in profile and not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", profile["auth_env"]):
+            raise ValueError(f"Agent backend auth_env is invalid: {name}")
+        for limit in ("timeout_seconds", "health_timeout_seconds", "max_output_bytes", "max_answer_chars", "max_input_chars", "history_messages"):
+            if limit in profile and (type(profile[limit]) is not int or profile[limit] <= 0):
+                raise ValueError(f"Invalid Agent backend {limit}: {name}")
     settings = {name: read_toml(home / f"{name}.toml") for name in (
         "tools", "matching", "planner", "runtime", "context", "extensions"
     )}
@@ -76,12 +105,25 @@ def load_user_config(home: Path) -> dict:
     for agent_id, agent in agents.items():
         if not agent.get("name") or not agent.get("role") or not isinstance(agent.get("capabilities", {}), dict):
             raise ValueError(f"Incomplete Agent definition: {home / 'agents' / f'{agent_id}.toml'}")
-        model_config = agent.get("model")
-        if not isinstance(model_config, dict):
-            raise ValueError(f"Agent {agent_id} needs a [model] table with id = \"default_fast\"")
-        model_alias = model_config.get("id")
-        if model_alias not in model_aliases:
-            raise ValueError(f"Unknown model alias {model_alias!r} in agent {agent_id}")
+        execution = agent.get("execution", {"kind": "native"})
+        kind = execution.get("kind", "native")
+        if kind not in {"native", "codex_cli", "openclaw", "process", "http"}:
+            raise ValueError(f"Unknown execution backend for agent {agent_id}: {kind}")
+        if kind == "native":
+            model_config = agent.get("model")
+            if not isinstance(model_config, dict):
+                raise ValueError(f"Agent {agent_id} needs a [model] table with id = \"default_fast\"")
+            model_alias = model_config.get("id")
+            if model_alias not in model_aliases:
+                raise ValueError(f"Unknown model alias {model_alias!r} in agent {agent_id}")
+        else:
+            profile = backends["profiles"].get(execution.get("profile"))
+            if not profile:
+                raise ValueError(f"Unknown execution profile for agent {agent_id}")
+            if kind == "http" and not profile.get("endpoint"):
+                raise ValueError(f"HTTP Agent {agent_id} needs a fixed endpoint")
+            if kind == "process" and not profile.get("executable"):
+                raise ValueError(f"Process Agent {agent_id} needs an executable")
         load_skills(home, agent.get("extensions", {}).get("skills", []), settings["extensions"]["policy"].get("max_skill_chars", 12000))
     for team_id, team in teams.items():
         if not team.get("name"):
@@ -107,5 +149,5 @@ def load_user_config(home: Path) -> dict:
         "workflows": sorted(str(path.relative_to(home)) for root in (home / "workflows", home / "abilities" / "workflows") for path in root.rglob("workflow.toml")),
         "mcp": sorted(str(path.relative_to(home)) for root in (home / "mcp", home / "abilities" / "mcp") for path in root.glob("*.toml")),
     }
-    return {"app": app, "models": models, "settings": settings,
+    return {"app": app, "models": models, "backends": backends, "settings": settings,
             "agents": agents, "teams": teams, "installed_extensions": installed}

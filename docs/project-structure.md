@@ -438,6 +438,8 @@ supports_streaming = true
 
 ### 3.5 多入口的统一执行链（目标设计）
 
+**当前实现：** `src/futurework/adapters/` 已有 `web/`、`api/`、`app/`、`cli/` 四个入口子目录。Web 与无页面 API 共用 FastAPI 路由和 TaskRuntime；API 入口验证 Bearer 密钥。桌面 App 使用 pywebview 加本机 loopback 服务复用网页，CLI 以进程内 ASGI 请求复用同一消息链。来源标记已归一化为 RunParams。下文的统一 TaskIngress、持久 run_id、按作用域的事件重放和跨端身份仍是下一阶段设计，不能把当前 SQLite 全局事件表等同于完整事件总线。
+
 Bamboo 的 CLI、Web、API 和 pywebview 桌面 App 都将请求整理为 RunParams，再交给 TaskRuntime；桌面 App 通过本机 Python 桥接，不必启动 HTTP 服务。FutureWork 当前仅有 Web/FastAPI 消息入口，CLI 只有管理命令。未来增加桌面 App、版本化开放 API，CLI 聊天可随后增加。所有入口共用 TaskFactory、TaskRuntime、三种顶层 Runtime、AgentExecutor、上下文与审批；入口代码只处理身份、协议、附件和结果呈现。
 
 ```text
@@ -466,6 +468,8 @@ Web/App/API Presenter <─ 按权限读取事件、消息、审批和任务状�
 目标模块位于 `src/futurework/`：`adapters/inbound/{web,desktop,public_api,cli}.py`、`adapters/outbound/{web,desktop,public_api,cli}.py`、`adapters/desktop/bridge.py`、`services/task_ingress.py`、`runtime/events.py`、`persistence/event_store.py`。入口监听、鉴权、允许来源、请求/附件限额、同步等待、事件保留与重放上限在 `app.toml [entrypoints.*]`；运行预算在 `runtime.toml`。桌面桥只向当前用户开放；若采用 loopback HTTP，绑定 127.0.0.1 并校验随机令牌及 Origin。
 
 ### 3.6 外部 Agent 好友的执行协议（目标设计）
+
+**当前实现：** 用户可在 Agent TOML 的 `[execution]` 指定 `native`、`codex_cli`、`openclaw`、`process` 或 `http`，由 `agent_backends.toml` 的 profile 补充路径、端点和限制。AgentRuntime 将非 native 好友交给后端注册表；私聊、Swarm 群和任务步骤都复用这条分派链。Codex 使用非交互 CLI，OpenClaw 使用本机 `agent --local --json`，通用进程与 HTTP 使用 `futurework-agent-v1` JSON 请求/结果。当前外部后端只返回最终文本，暂无逐工具审批、OS 级沙箱、持久事件、取消或副作用确认；下文的协议和安全机制是目标，不能声称已全部落地。
 
 OpenClaw、Codex、自编 Agent 和垂直领域 Agent 都作为配置驱动的好友接入；默认初始化仍只有小未、小T、小V和媒体群。好友的身份、能力、权限和长期人物介绍仍放 `~/.FutureWork/agents/<id>.toml` 与同目录 `<id>.md`（用户 `abilities/friends/` 使用相同 schema）。外部 Agent 是执行后端，**不是模型 provider**；内置好友仍以 `execution.kind = "native"` 走现有 AgentRuntime/ModelGateway。三种顶层 Runtime 和各自 ScopeKey 不因后端不同而变化，小未可以按能力分派，群成员也可以使用外部后端。
 
