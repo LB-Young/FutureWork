@@ -1,0 +1,17 @@
+# Names and explanations for the append-only user .env template.
+[variables]
+DEEPSEEK_API_KEY = "DeepSeek 模型密钥；默认小未使用。"
+OPENAI_API_KEY = "OpenAI 模型密钥。"
+DASHSCOPE_API_KEY = "阿里云百炼模型密钥。"
+MOONSHOT_API_KEY = "Kimi 模型密钥。"
+MINIMAX_API_KEY = "MiniMax 模型密钥。"
+OPENROUTER_API_KEY = "OpenRouter 模型密钥。"
+ANTHROPIC_API_KEY = "Anthropic 或 Claude Code 使用的模型密钥。"
+MIMO_API_KEY = "小米 MiMo 模型密钥。"
+ZHIPU_API_KEY = "智谱模型密钥。"
+HTTP_PROVIDER_BASE_URL = "公司 HTTP 模型代理的完整请求地址。"
+HTTP_PROVIDER_API_KEY = "公司 HTTP 模型代理密钥。"
+FUTUREWORK_API_KEY = "无页面 API 入口的 Bearer 密钥。"
+ANTHROPIC_AUTH_TOKEN = "Claude Code 接入自定义服务时可用的认证令牌。"
+ANTHROPIC_BASE_URL = "Claude Code 接入自定义服务时可用的地址。"
+CODEX_HOME = "Codex 自定义配置目录；留空则使用 Codex 默认目录。"

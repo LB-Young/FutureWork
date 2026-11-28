@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from futurework.runtime.team_runtime import TeamRuntime
+from futurework.runtime.agent_executor import AgentRuntime
+from futurework.runtime.tool_approvals import ToolApprovalStore
+from futurework.services.delegation_service import DelegationService
 from futurework.runtime.errors import retry_operation
 from futurework.runtime.run_params import RunParams
 from futurework.runtime.task_factory import Task, TaskFactory, TaskKind, TaskResult
@@ -15,14 +18,19 @@ class RequestConflict(Exception):
 class TaskRuntime:
     """Own idempotency, task lifecycle, routing, and replay-safe task recovery."""
 
-    def __init__(self, *, database, config: dict, config_store, message_service,
-                 agent_service, agent_runtime) -> None:
+    def __init__(self, *, database, config: dict, message_service,
+                 agent_service, group_service, memory_store) -> None:
         self.database = database
         self.config = config
         self.message_service = message_service
         self.factory = TaskFactory()
-        self.agent = agent_runtime
-        self.team = TeamRuntime(database, config, message_service, agent_runtime)
+        self.agent = AgentRuntime(config, memory_store=memory_store,
+                                  approval_store=ToolApprovalStore(database, message_service, config))
+        self.team = TeamRuntime(database, config, message_service, self.agent)
+        self.agent.delegation_service = DelegationService(
+            database, config, message_service, self.agent, self.team)
+        self.agent.agent_service = agent_service
+        self.agent.group_service = group_service
 
     def _duplicate(self, connection, params: RunParams) -> TaskResult | None:
         """Return the original result for a repeated client message ID."""

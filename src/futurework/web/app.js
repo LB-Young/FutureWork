@@ -78,10 +78,11 @@ async function refresh({ includeMessages = true } = {}) {
 }
 
 function renderContacts() {
-  $('#agentCount').textContent = String(agents.length).padStart(2, '0');
+  $('#agentCount').textContent = String(agents.length + 1).padStart(2, '0');
   $('#groupsToggle em').textContent = String(groups.length).padStart(2, '0');
   $('#teamCount').textContent = `${agents.length + 1} 位 Agent 正在协作`;
-  $('#agentList').innerHTML = agents.map((agent) => `<button class="contact-row ${selected === agent.id ? 'selected' : ''}" data-contact="${agent.id}">${avatar(agent)}<span class="contact-copy"><strong>${escapeHtml(agent.name)}</strong><small>${escapeHtml(agent.role)}</small></span><span class="tiny-dot"></span></button>`).join('');
+  const assistantRow = `<button class="contact-row assistant-contact ${selected === 'assistant' ? 'selected' : ''}" data-contact="assistant"><span class="avatar assistant-avatar">✦</span><span class="contact-copy"><strong>${escapeHtml(bootstrap.ui.assistant_name)}</strong><small>${escapeHtml(bootstrap.ui.assistant_role)}</small></span><span class="pinned-label">置顶</span></button>`;
+  $('#agentList').innerHTML = assistantRow + agents.map((agent) => `<button class="contact-row ${selected === agent.id ? 'selected' : ''}" data-contact="${agent.id}">${avatar(agent)}<span class="contact-copy"><strong>${escapeHtml(agent.name)}</strong><small>${escapeHtml(agent.role)}</small></span><span class="tiny-dot"></span></button>`).join('');
   $('#groupList').innerHTML = groups.map((group) => `<button class="contact-row ${selected === group.id ? 'selected' : ''}" data-contact="${group.id}">${avatar(group)}<span class="contact-copy"><strong>${escapeHtml(group.name)}</strong><small>${escapeHtml(group.role)}</small></span></button>`).join('');
   document.querySelectorAll('[data-contact]').forEach((button) => button.addEventListener('click', () => selectConversation(button.dataset.contact)));
 }
@@ -330,6 +331,7 @@ document.addEventListener('keydown', (event) => {
 $('#searchButton').addEventListener('click', () => {
   const name = window.prompt('搜索 Agent 或群聊');
   if (!name) return;
+  if (bootstrap.ui.assistant_name.includes(name.trim())) return selectConversation('assistant');
   const found = [...agents, ...groups].find((item) => item.name.includes(name.trim()) || item.role.includes(name.trim()));
   if (found) selectConversation(found.id); else showToast('没有找到相关对话');
 });

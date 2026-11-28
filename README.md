@@ -23,7 +23,7 @@ FutureWork 是一个可以在本机安装和运行的 Agent 团队应用。界�
 | --- | --- |
 | 个人助理 | 小未与好友使用同一个 Agent loop。`delegate_task` 只向已有好友或群聊分派任务；创建好友用 `friend_create`，创建群聊用 `team_create`，两者调用前均需审批。简单问题由小未直接回答。 |
 | 对话执行入口 | Web、无页面 API、桌面 App 和 CLI 都进入相同的 `RunParams → TaskFactory → TaskRuntime` 链；TaskRuntime 按会话目标路由，不预先分类聊天/任务。 |
-| 对象调用链 | `TaskRuntime` 持有 `AgentRuntime` 和 `TeamRuntime`；`AgentRuntime` 持有模型网关，单次运行创建授权工具注册表；API 持有消息、Agent 和群聊服务对象。 |
+| 对象调用链 | API 创建数据库、消息及配置服务，然后交给 `TaskRuntime`；`TaskRuntime` 一次性装配 `AgentRuntime`、`TeamRuntime`、工具审批和分派服务。API 通过其 `agent` 属性复用同一执行器。 |
 | Agent 好友 | 每位好友由独立 TOML 定义，拥有自己的能力、权限和私聊历史；可选内置模型、Codex、OpenClaw、JSONL 进程或 HTTP 执行后端。 |
 | 初始成员 | 全新用户目录预置小未、小T、小V、Codex、OpenClaw、Claude Code 和一个「媒体群」；外部 CLI 好友的实际调用依赖本机安装、账户和配置健康。 |
 | 群聊 | `swarm` 模式由成员轮流响应；`controlled` 模式由小未选择成员，必要时汇总多人回复。群聊读取本群自己的历史。 |
@@ -64,16 +64,17 @@ kill -TERM 12345
 futurework serve
 ```
 
-如果此前用其他端口启动（例如 `8001`），把查询命令里的 `8000` 换成对应端口。不要仅凭端口号关闭不认识的进程；先检查 `COMMAND` 和 `PID`。启动前仍需在当前终端设置所用模型的密钥环境变量。
+如果此前用其他端口启动（例如 `8001`），把查询命令里的 `8000` 换成对应端口。不要仅凭端口号关闭不认识的进程；先检查 `COMMAND` 和 `PID`。密钥可填写在下述 `.env` 中，修改后重启服务。
 
-初始配置让小未和示例 Agent 使用 DeepSeek。如果使用云端 DeepSeek，先在**启动 FutureWork 的同一个终端**设置环境变量，再运行服务：
+`futurework init` 会生成权限为 `0600` 的 `~/.FutureWork/.env`。初始配置让小未和示例 Agent 使用 DeepSeek，可在该文件中填写：
 
-```bash
-export DEEPSEEK_API_KEY="你的密钥"
-futurework serve
+```dotenv
+DEEPSEEK_API_KEY=你的密钥
 ```
 
-密钥只从环境变量读取，不应写进 `models.toml`、Agent TOML 或 Git。使用其他云平台时，设置相应平台的密钥环境变量。只使用下述本地模型时，无需配置 DeepSeek 密钥。
+保存后运行 `futurework serve`；Web、App、API 和 CLI 入口都会自动读取所选用户目录的 `.env`。其中预列 DeepSeek、OpenAI、阿里云、Kimi、MiniMax、OpenRouter、Anthropic、MiMo、智谱、公司 HTTP 代理、无页面 API、Claude Code 和 Codex 等所需变量；用不到的项留空。显式设置在启动进程里的同名环境变量优先。密钥不要写入 `models.toml`、Agent TOML 或 Git。只使用下述本地模型时，无需配置 DeepSeek 密钥。
+
+初始化和每次启动只会在 `.env` **末尾追加缺少的变量名**，不会删除或改写已有赋值。安装新 Skill、MCP 或配置新的模型变量后再次运行 `futurework init`；通过 `skill_create` 创建且说明中引用了新变量的 Skill 会立即把变量名追加到 `.env`。程序没有直接修改已有 `.env` 值的接口；已有值只能由用户本人编辑。将来若增加应用内修改入口，必须先提交审批，不能静默改值。`.env` 不提交仓库；修改后需重启服务。`FUTUREWORK_HOME` 决定去哪个目录找 `.env`，因此它应在启动命令的环境中或用 `--home` 指定，不能靠 `.env` 自己改变目录。
 
 可以用 `FUTUREWORK_HOME` 指向另一个用户目录，也可以把 `--home` 放在命令前：
 
@@ -322,7 +323,7 @@ agent_id = "assistant"
 
 当前消息执行链为 `POST /conversations/{id}/messages → RunParams → TaskFactory → TaskRuntime → AgentRuntime 或 TeamRuntime`。`RunParams` 包含入口来源、会话目标快照、消息正文及客户端消息 ID；工厂只按会话目标创建 `agent_chat`、`group_swarm` 或 `group_controlled` 三类 Task，不调用模型、不写数据库。小未和其他好友统一进入 AgentRuntime；小未选择调用 `delegate_task` 时才由工具执行层创建并运行持久任务。查询、配置修改和审批接口仍走各自的业务路径。
 
-运行时依赖在启动时装配一次：TaskRuntime 负责幂等、持久化用户消息、路由和任务级错误处理；AgentRuntime 拥有小未与好友的同一套模型/工具 loop；TeamRuntime 持有 SwarmPolicy 或 GroupController 并调用成员的 AgentRuntime。`TaskPlanner` 只存在于 `delegate_task` 的执行服务中，由小未实际调用后才进行规则拆解和已有好友的能力匹配。模型网关按别名缓存适配器；Agent、Team 和 Task 各有独立的有限重试配置，工具执行层只自动重试可重放读类工具。全部重试次数和退避参数都在用户目录的 `runtime.toml`、`tools.toml` 与 `app.toml` 中。
+运行时依赖在启动时装配一次：API 先创建数据库、消息、配置和好友／群服务，TaskRuntime 在构造时统一初始化 AgentRuntime、TeamRuntime、审批和分派服务。TaskRuntime 负责幂等、持久化用户消息、路由和任务级错误处理；AgentRuntime 拥有小未与好友的同一套模型/工具 loop；TeamRuntime 持有 SwarmPolicy 或 GroupController 并调用成员的 AgentRuntime。`TaskPlanner` 只存在于 `delegate_task` 的执行服务中，由小未实际调用后才进行规则拆解和已有好友的能力匹配。模型网关按别名缓存适配器；Agent、Team 和 Task 各有独立的有限重试配置，工具执行层只自动重试可重放读类工具。全部重试次数和退避参数都在用户目录的 `runtime.toml`、`tools.toml` 与 `app.toml` 中。
 
 ## 工具、权限与审批
 

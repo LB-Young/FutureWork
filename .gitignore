@@ -5,6 +5,7 @@ __pycache__/
 *.egg-info/
 build/
 dist/
+.env
 data/*
 # 仅提交仓库根目录的 README；各子目录的说明保留在本地。
 **/[Rr][Ee][Aa][Dd][Mm][Ee].[Mm][Dd]

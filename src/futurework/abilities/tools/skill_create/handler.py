@@ -40,4 +40,7 @@ def run(args: dict, config: dict) -> str:
     except Exception:
         shutil.rmtree(path)
         raise
+    from futurework.environment import ensure_environment_file
+
+    ensure_environment_file(home)
     return json.dumps({"id": name, "path": str(path), "enabled_for_agents": False}, ensure_ascii=False)

@@ -395,11 +395,13 @@ supports_streaming = true
 
 密钥只保存在环境变量或系统密钥库，配置文件只写引用；日志、异常和 SSE 事件必须脱敏。401/403、配置错误和能力不支持直接失败；429、5xx、超时按平台 `Retry-After` 和指数退避重试，次数与总耗时受全局硬上限约束。产生工具副作用后禁止自动重放整轮请求。跨平台回退必须由 Agent 显式列出候选别名，并逐一验证工具能力、数据地域、费用与用户授权；不能因为一个平台故障就把私有数据自动发到另一个平台。上述网关和适配器均为设计目标。
 
+**用户环境变量：** `futurework init` 创建 `~/.FutureWork/.env`（0600），按包内 `defaults/environment.toml`、模型、外部 Agent、MCP 与 Skill 引用补充变量名。之后仅追加缺失项，不覆盖或删除已有赋值；启动入口读取非空值，进程已设置的同名变量优先。用户手工编辑已有值；程序不提供绕过审批的修改入口。
+
 ### 3.4 AgentRuntime、TeamRuntime 与任务工具
 
 当前对话有三种**上下文作用域**：小未个人会话、好友私聊和群聊；执行器是两种：小未与好友共用 `AgentRuntime`，群聊使用 `TeamRuntime` 并调用成员的 `AgentRuntime`。这保留了记忆隔离，也避免为小未单独维护一套模型 loop。
 
-`RunParams → TaskFactory → TaskRuntime` 只根据目标构造 `agent_chat`、`group_swarm` 或 `group_controlled`。TaskRuntime 负责幂等、保存用户消息、路由、任务级错误分类和有限重试，不判断小未消息是聊天还是任务，也不调用 TaskPlanner。个人会话直接交给 `AgentRuntime.handle_conversation()`；群聊交给 `TeamRuntime.run()`。AgentRuntime 内负责上下文加载、提示词、模型工具 loop、Agent 级重试及回复保存；TeamRuntime 负责群成员选择、群消息提交及 Team 级重试。
+`RunParams → TaskFactory → TaskRuntime` 只根据目标构造 `agent_chat`、`group_swarm` 或 `group_controlled`。TaskRuntime 在构造时统一装配 AgentRuntime、TeamRuntime、工具审批和分派服务，并负责幂等、保存用户消息、路由、任务级错误分类和有限重试，不判断小未消息是聊天还是任务，也不调用 TaskPlanner。个人会话直接交给 `AgentRuntime.handle_conversation()`；群聊交给 `TeamRuntime.run()`。AgentRuntime 内负责上下文加载、提示词、模型工具 loop、Agent 级重试及回复保存；TeamRuntime 负责群成员选择、群消息提交及 Team 级重试。
 
 ```text
 Web / App / API / CLI → RunParams → TaskFactory → TaskRuntime

@@ -18,14 +18,11 @@ from futurework.database import Database
 from futurework.config_store.writer import ConfigStore
 from futurework.contexts.store import MemoryStore
 from futurework.home import ensure_home
-from futurework.model import AgentRuntime
-from futurework.runtime.tool_approvals import ToolApprovalStore
 from futurework.runtime.run_params import RunParams
 from futurework.runtime.task_runtime import RequestConflict, TaskRuntime
 from futurework.services.agent_service import AgentService, AgentServiceError
 from futurework.services.group_service import GroupService, GroupServiceError
 from futurework.services.message_service import MessageService
-from futurework.services.delegation_service import DelegationService
 from futurework.workers.task_worker import TaskRecoveryWorker
 from futurework.extension_system.workflow_runner import WorkflowRunner
 from futurework.contexts.types import ScopeKey
@@ -125,16 +122,10 @@ def create_app(home: str | Path | None = None, db_path: str | Path | None = None
     async def service_error(request: Request, error: AgentServiceError | GroupServiceError):
         return JSONResponse(status_code=error.status_code, content={"detail": error.detail})
 
-    agent_runtime = AgentRuntime(config, memory_store=memory_store,
-                                 approval_store=ToolApprovalStore(database, message_service, config))
-    task_runtime = TaskRuntime(database=database, config=config, config_store=config_store,
+    task_runtime = TaskRuntime(database=database, config=config,
                                message_service=message_service, agent_service=agent_service,
-                               agent_runtime=agent_runtime)
-    agent_runtime.delegation_service = DelegationService(
-        database, config, message_service,
-        agent_runtime, task_runtime.team)
-    agent_runtime.agent_service = agent_service
-    agent_runtime.group_service = group_service
+                               group_service=group_service, memory_store=memory_store)
+    agent_runtime = task_runtime.agent
     recovery_worker = TaskRecoveryWorker(database, config, message_service, task_runtime)
     workflow_runner = WorkflowRunner(user_home, config["workflow"])
     scheduler = ScheduleStore(user_home, config["schedule"])

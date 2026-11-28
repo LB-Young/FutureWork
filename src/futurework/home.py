@@ -54,7 +54,7 @@ def ensure_home(override: str | Path | None = None) -> Path:
         if not explanation.exists():
             explanation.write_text(f"# {directory.name}\n\n{purpose}\n", encoding="utf-8")
     for source in resource_root.iterdir():
-        if not source.name.endswith(".toml"):
+        if not source.name.endswith(".toml") or source.name == "environment.toml":
             continue
         target = home / source.name
         if not target.exists():
@@ -106,4 +106,8 @@ def ensure_home(override: str | Path | None = None) -> Path:
     from futurework.contexts.store import MemoryStore
 
     MemoryStore(home).ensure_profiles()
+    from futurework.environment import ensure_environment_file, load_environment
+
+    ensure_environment_file(home)
+    load_environment(home)
     return home
