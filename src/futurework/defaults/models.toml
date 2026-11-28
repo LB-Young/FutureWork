@@ -5,8 +5,8 @@ schema_version = 1
 adapter = "openai_chat"
 base_url = "https://api.deepseek.com"
 api_key_env = "DEEPSEEK_API_KEY"
-# 仅用于兼容本机 Bamboo 凭据条目；实际请求模型由 remote_id 指定。
-bamboo_model = "deepseek-chat"
+# Bamboo 凭据条目与实际请求模型均使用明确的模型名。
+bamboo_model = "deepseek-flash"
 
 [providers.openai]
 adapter = "openai_chat"
