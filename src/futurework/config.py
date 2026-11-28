@@ -33,6 +33,15 @@ def load_config(home: Path) -> dict:
     with DEFAULT_CONFIG.open("rb") as source:
         bundled = tomllib.load(source)
     config = _merge(bundled, raw["app"])
+    directory = config["directory_search"]
+    if any(type(directory.get(key)) is not int or directory[key] <= 0
+           for key in ("default_top_k", "max_top_k", "max_query_chars", "max_profile_chars")) or \
+       directory["default_top_k"] > directory["max_top_k"] or \
+       type(directory.get("min_score")) not in (int, float) or not 0 <= directory["min_score"] <= 1 or \
+       type(directory.get("coverage_weight")) not in (int, float) or not 0 <= directory["coverage_weight"] <= 1 or \
+       any(type(directory.get(key)) not in (int, float) or directory[key] <= 0 for key in
+           ("name_weight", "role_weight", "capability_weight", "member_weight", "profile_weight")):
+        raise ValueError("app.toml [directory_search] contains invalid search limits or weights")
     config["permissions"]["available_tools"] = list(PUBLIC_TOOLS)
     config["permissions"]["safe_default_tools"] = [name for name in config["permissions"]["safe_default_tools"] if name in SCHEMAS]
     required = set(bundled["permissions"]["approval_required_tools"]) | set(config["permissions"]["approval_required_tools"])

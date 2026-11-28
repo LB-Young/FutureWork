@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
+import pytest
 
 from futurework.api.app import create_app
 from tests.support import sample_home
@@ -15,6 +16,8 @@ from futurework.integrations.model_gateway.types import ModelResult, ToolCall
 from futurework.runtime.agent_executor import AgentResponse
 from futurework.runtime.tool_dispatch import ToolRegistry
 from futurework.contexts.types import ScopeKey
+from futurework.abilities.tools.team_directory import handler as directory_handler
+from futurework.config_store.writer import ConfigStore
 
 
 def send(client, conversation_id, body):
@@ -54,7 +57,8 @@ def test_assistant_chat_stays_in_its_own_conversation(tmp_path, monkeypatch):
         return AgentResponse("你好，我是小未。")
 
     monkeypatch.setattr("futurework.model.AgentRuntime.respond_with_result", fake_respond)
-    client = TestClient(create_app(sample_home(tmp_path / "home")))
+    home = sample_home(tmp_path / "home")
+    client = TestClient(create_app(home))
     response = send(client, "assistant", "你好")
     assert response.status_code == 202
     assert response.json()["task_id"] is None
@@ -75,7 +79,8 @@ def test_assistant_directory_tool_reads_current_friends_and_teams(tmp_path, monk
         return ModelResult(tool_calls=[ToolCall("directory-1", "team_directory", {})])
 
     monkeypatch.setattr(ModelGateway, "generate", fake_generate)
-    client = TestClient(create_app(sample_home(tmp_path / "home")))
+    home = sample_home(tmp_path / "home")
+    client = TestClient(create_app(home))
     friend = client.post("/api/v1/agents", json={"name": "数据专家", "role": "分析数据"}).json()
     client.post("/api/v1/groups", json={"name": "数据组", "member_ids": [friend["id"]], "mode": "swarm"})
     assert send(client, "assistant", "团队有哪些人").status_code == 202
@@ -89,6 +94,50 @@ def test_assistant_directory_tool_reads_current_friends_and_teams(tmp_path, monk
                             agent_service=SimpleNamespace(database=client.app.state.database,
                                                           config=client.app.state.config))
     assert not asyncio.run(registry.execute("team_directory", {})).success
+
+    service = SimpleNamespace(database=client.app.state.database, config=client.app.state.config,
+                              config_store=ConfigStore(home))
+    image_matches = json.loads(directory_handler.run({"query": "生成图片", "top_k": 2}, service))
+    assert image_matches["matches"][0]["name"] == "小T"
+    assert len(image_matches["matches"]) == 2
+    new_friend = json.loads(directory_handler.run({"query": "分析数据", "target_kind": "agent", "top_k": 1}, service))
+    assert new_friend["matches"][0]["id"] == friend["id"]
+    mixed = json.loads(directory_handler.run({"query": "生成图片和视频", "top_k": 3}, service))
+    assert mixed["matches"][0]["kind"] == "group"
+    only_teams = json.loads(directory_handler.run({"target_kind": "group"}, service))
+    assert only_teams["friends"] == [] and only_teams["teams"]
+    team_match = json.loads(directory_handler.run({"query": "生成图片和视频", "target_kind": "group", "top_k": 1}, service))
+    assert team_match["matches"][0]["kind"] == "group"
+    with pytest.raises(ValueError, match="top_k"):
+        directory_handler.run({"query": "生成图片", "top_k": client.app.state.config["directory_search"]["max_top_k"] + 1}, service)
+
+
+def test_assistant_searches_before_delegating_to_a_fixed_friend(tmp_path, monkeypatch):
+    calls = []
+
+    async def fake_generate(self, request):
+        if "你的名字是小未" not in request.messages[0]["content"]:
+            return ModelResult("小T已完成图片方案。")
+        if request.messages[-1]["role"] == "tool":
+            outcome = json.loads(request.messages[-1]["content"])
+            if "matches" in outcome:
+                chosen = outcome["matches"][0]
+                calls.append(("searched", chosen["id"]))
+                return ModelResult(tool_calls=[ToolCall("delegate", "delegate_task", {
+                    "request": "生成图片", "target_kind": "agent", "target_id": chosen["id"]})])
+            return ModelResult("图片任务已交给小T并完成。")
+        calls.append(("search", None))
+        return ModelResult(tool_calls=[ToolCall("directory", "team_directory", {
+            "query": "生成图片", "target_kind": "agent", "top_k": 2})])
+
+    monkeypatch.setattr(ModelGateway, "generate", fake_generate)
+    client = TestClient(create_app(sample_home(tmp_path / "home")))
+    result = send(client, "assistant", "生成图片")
+    assert result.status_code == 202
+    assert calls == [("search", None), ("searched", "image")]
+    task = client.get(f"/api/v1/tasks/{result.json()['task_id']}").json()
+    assert task["status"] == "completed"
+    assert task["steps"][0]["agent_id"] == "image"
 
 
 def test_approval_updates_agent_toml(tmp_path):

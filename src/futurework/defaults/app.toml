@@ -41,6 +41,19 @@ default_load = 0.20
 default_cost = 0.30
 auto_agent_proficiency = 0.85
 
+[directory_search]
+default_top_k = 5
+max_top_k = 10
+max_query_chars = 400
+max_profile_chars = 2000
+min_score = 0.02
+coverage_weight = 0.35
+name_weight = 4.0
+role_weight = 2.0
+capability_weight = 1.5
+member_weight = 1.25
+profile_weight = 0.25
+
 [model]
 provider = "registry"
 default_model = "default_fast"

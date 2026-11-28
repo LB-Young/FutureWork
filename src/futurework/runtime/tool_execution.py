@@ -24,7 +24,7 @@ JSON_OUTPUTS = {"delegate_task": dict, "friend_create": dict, "team_create": dic
 JSON_REQUIRED = {"delegate_task": {"task_id", "status"},
                  "friend_create": {"id", "name", "model", "tools", "skills"},
                  "team_create": {"id", "name", "member_ids", "mode"},
-                 "team_directory": {"assistant", "friends", "teams"},
+                 "team_directory": {"assistant", "friends", "teams", "matches", "query", "target_kind"},
                  "memory_search": {"tier", "scope", "matches"},
                  "plan_update": {"steps"}, "plan_check": {"id", "status", "evidence"},
                  "schedule_create": {"id", "prompt", "run_at", "status"}}

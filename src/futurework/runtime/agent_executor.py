@@ -97,13 +97,17 @@ class AgentRuntime:
             return AgentResponse(settings["mock_reply"])
         system = f"{settings['system_prompt']} 你的名字是{run.name}，职责是{run.role}。"
         if run.agent_id == ASSISTANT and run.scope.kind == ASSISTANT:
-            system += ("\n你和其他好友共用 Agent 执行循环。遇到需要专家或群协作的复杂任务时自主调用 "
-                       "delegate_task；它只能指派给已有好友或群聊。缺少合适好友时，先用 friend_create 明确设置"
+            system += ("\n你和其他好友共用 Agent 执行循环。遇到需要专家或群协作的任务时自主调用 delegate_task。"
+                       "缺少合适好友时，先用 friend_create 明确设置"
                        "名字、职责、模型、工具、Skill 和能力；需要新群聊时用 team_create 指定成员和模式，"
-                       "随后再调用 delegate_task。创建配置必须经过审批。普通问题直接回答。"
+                       "随后再指派。创建配置必须经过审批。普通问题直接回答。"
                        "只有工具实际返回结果后才能说任务已完成。")
             if "team_directory" in run.tools and self.agent_service is not None:
-                system += "\n需要确认当前好友、群聊或群成员时，调用 team_directory 查询实时目录，不要根据旧记忆猜测名单。"
+                system += ("\n需要分派任务时，先调用 team_directory，传入任务作为 query，默认 target_kind=all，"
+                           "同时比较相关好友和群聊的 Top K、能力及群成员；只有用户明确限定好友或群聊时才缩小检索类型。"
+                           "结合需求选定一个固定目标，再用 delegate_task 的 target_kind 与 target_id 指派。"
+                           "检索分数只用于候选排序，不能代替你判断目标是否真能执行。"
+                           "需要列出所有好友或群聊时，调用不带 query 的 team_directory；不要根据旧记忆猜测名单。")
             available_skills = sorted({*self.config["assistant"].get("extensions", {}).get("skills", []),
                                        *(item.rsplit("/", 2)[-2] for item in
                                          self.config.get("installed_extensions", {}).get("skills", []))})

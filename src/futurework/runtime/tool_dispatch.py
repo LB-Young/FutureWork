@@ -42,9 +42,10 @@ from futurework.kinds import ASSISTANT, FRIEND, TEAM, DELEGATION_AUTO
 
 
 SCHEMAS = {
-    "delegate_task": ("Assign a complex task to a capable Agent friend or team; XiaoWei only. "
-                      "Only select existing friends or teams. If no friend matches, use friend_create first, "
-                      "then call delegate_task again. Summarize only actual results.",
+    "delegate_task": ("Assign a task to an existing Agent friend or Team; XiaoWei only. "
+                      "When team_directory is granted, use it with query=task to search candidates, then set target_kind and target_id "
+                      "to the chosen fixed target. If none fits, use friend_create or team_create first. "
+                      "Summarize only actual results.",
                       {"request": {"type": "string"},
                        "target_kind": {"type": "string", "enum": [DELEGATION_AUTO, FRIEND, TEAM]},
                        "target_id": {"type": "string"}}, ["request"]),
@@ -59,7 +60,12 @@ SCHEMAS = {
                      "member_ids": {"type": "array", "items": {"type": "string"}},
                      "mode": {"type": "string", "enum": ["controlled", "swarm"]}},
                     ["name", "member_ids", "mode"]),
-    "team_directory": ("List currently active Agent friends and Teams with their member names; XiaoWei's personal conversation only.", {}, []),
+    "team_directory": ("List active Agent friends and Teams, or search related friends and Teams for a task. "
+                       "Use query with optional top_k and target_kind=all (default) to compare both friends and Teams "
+                       "before delegating to a fixed target; filter only when the user explicitly narrows the type; "
+                       "without query, list all. XiaoWei's personal conversation only.",
+                       {"query": {"type": "string"}, "top_k": {"type": "integer"},
+                        "target_kind": {"type": "string", "enum": ["all", FRIEND, TEAM]}}, []),
     "skill_create": ("Create a reusable Skill in the user's abilities directory; requires approval.",
                      {"name": {"type": "string"}, "description": {"type": "string"},
                       "instructions": {"type": "string"}}, ["name", "description", "instructions"]),

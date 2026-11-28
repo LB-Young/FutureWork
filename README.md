@@ -317,7 +317,7 @@ id = "ollama_local"
 "research.web" = 0.9
 ```
 
-用户在小未的聊天区发消息后，小未先进入与其他好友相同的 Agent loop。模型认为需要其他好友或群协作时，可调用 `delegate_task`，指定已有好友、已有群，或选择自动匹配。自动匹配按 `app.toml` 中的 `[[planner.rules]]` 关键词形成步骤，并依据 Agent 能力分值和 `[matching]` 阈值选择好友；缺少合适好友时只返回缺失的能力和建议配置，**不会暗中创建**。小未应先用 `friend_create` 创建并配置好友，再重新分派。需要新群聊时，用 `team_create` 指定已有好友 ID 和 `controlled` 或 `swarm` 模式，之后再分派。创建工具调用会显示审批，批准后才写配置。简单问题可以直接回答，不产生分派任务。
+用户在小未的聊天区发消息后，小未先进入与其他好友相同的 Agent loop。需要委派时，先调用 `team_directory`，以任务描述查询好友和群聊候选，再根据结果中的职责、能力、群成员与分数选择目标，调用 `delegate_task` 并明确传入 `target_kind` 和 `target_id`。分数只提供候选顺序，不代表模型、工具或外部执行器已可用。`delegate_task` 仍兼容旧的 `auto` 模式：它按 `app.toml` 中的 `[[planner.rules]]` 关键词形成步骤，再依据好友能力分值和 `[matching]` 阈值选择好友；这个兼容模式不会自动选择群聊。缺少合适好友时只返回缺失能力和建议配置，**不会暗中创建**。小未应先用 `friend_create` 创建并配置好友，再重新查询和分派。需要新群聊时，用 `team_create` 指定已有好友 ID 和 `controlled` 或 `swarm` 模式，之后再分派。创建工具调用会显示审批，批准后才写配置。简单问题可以直接回答，不产生分派任务。
 
 创建好友时可以指定 `name`、`role`、已配置的 `model` 别名、`tools` 列表、`skills` 列表和能力熟练度映射 `capabilities`；创建结果会写入 `~/.FutureWork/agents/<ID>.toml`，Skill 写入同一文件的 `[extensions] skills`。例如调用 `POST /api/v1/agents` 时提交：
 
@@ -366,10 +366,14 @@ agent_id = "assistant"
 | `delegate_task` | 向已有好友或群聊指派任务 | 只在小未私聊开放；能力缺失时返回建议，不创建配置。 |
 | `friend_create` | 创建并配置 Agent 好友 | 只在小未私聊开放，指定模型、工具、Skill 和能力；调用前必须审批。 |
 | `team_create` | 创建协作群聊 | 只在小未私聊开放，指定已有好友和 `controlled`／`swarm` 模式；调用前必须审批。 |
-| `team_directory` | 查询当前好友、群聊及群成员 | 只在小未私聊开放；从数据库实时读取当前启用的身份与成员关系，不读取对话内容。 |
+| `team_directory` | 列出全部好友、群聊，或按任务相似度检索 Top K 候选 | 只在小未私聊开放；从数据库及对应人物/群介绍读取当前身份与能力，不读取对话内容。 |
 | `web_fetch` | 读取公共网页文本 | 拒绝本地/私有 IP，每次跳转重新检查目标地址，限制响应大小、跳转次数和时长；新增授权需要配置审批。 |
 | `url_to_md` | 把公共网页可见文本保存为 Markdown | 仅保存至工作区；新增授权需要配置审批。 |
 | `bash` | 在工作区目录执行 POSIX shell 命令 | 需 Agent 授权且 `[tool_runtime] allow_shell = true`；限制超时和回传输出。**当前没有操作系统沙箱**，开启后命令仍可能访问工作区外的本机资源。 |
+
+`team_directory` 不传参数（`{}`）时返回全部启用的好友与群聊；可传 `target_kind = "agent"` 或 `"group"` 只列一类。检索时传入任务描述、候选类型和数量，例如 `{"query":"生成图片和视频","target_kind":"all","top_k":3}`。返回结构始终包含 `assistant`、`query`、`target_kind`、`friends`、`teams`、`matches`：列出全部时填写 `friends`／`teams`，检索时只填写 `matches`；每条候选包含 `kind`、`id`、名称、职责、能力熟练度，群聊还包含模式、用途及成员，检索结果额外给出 `score`。候选的 `kind` 值直接对应 `delegate_task` 的 `target_kind`（`agent` 或 `group`）；小未选定目标后，将它的 `id` 作为 `target_id` 分派。
+
+当前相似度是**本地文本检索**：对名称、职责、能力键、人物/群聊介绍和群成员职责计算中英文词项的 TF-IDF 余弦相似度，并加入查询词覆盖率。它不调用向量模型，也不证明候选具备运行所需的模型或工具权限。`~/.FutureWork/app.toml` 的 `[directory_search]` 可调整默认和最大 `top_k`、最低分、介绍文件读取上限、字段权重与覆盖率权重；未写该表时使用包内默认值。配置修改后重启服务。
 
 默认工作区是 `~/.FutureWork/workspace/`。调整 `~/.FutureWork/app.toml` 的 `[tool_runtime] workspace` 可改变路径；同一配置表还控制工具轮数、每轮调用数、文件大小、网页大小、命令超时和输出长度。工具真正执行前会再次检查该 Agent 的 `tools` 授权。文件工具不能通过 `../` 或指向工作区外的符号链接读取外部文件。新建 Agent 的安全默认工具由 `app.toml [permissions] safe_default_tools` 控制；小未、小T、小V分别使用自己的 TOML 工具列表。已有用户目录中的自定义 Agent TOML 不会自动改写。
 
