@@ -137,7 +137,17 @@ remote_id = "qwen2.5:7b"
 supports_tools = false
 ```
 
-`remote_id` 必须是 Ollama 中实际存在的模型名；可以运行 `ollama list` 核对。接着把 `~/.FutureWork/agents/assistant.toml` 中的 `[model] id` 改为 `ollama_local`，让小未的聊天、任务分派工具调用和群中控也使用本地模型：
+`remote_id` 必须是 Ollama 中实际存在的模型名；可以运行 `ollama list` 核对。上面的初始示例关闭了工具调用，因此选用它的小未只能聊天，不能调用 `delegate_task` 等工具。若要让小未协调团队，应选用本机已安装且支持工具调用的模型，并在 `~/.FutureWork/models.toml` 中调整该别名。例如已安装 `qwen3:8b` 时：
+
+```toml
+[models.ollama_local]
+provider = "ollama"
+remote_id = "qwen3:8b"
+supports_tools = true
+context_window = 40960
+```
+
+`qwen3:0.6b` 等小模型可能能回答短问题，却无法稳定处理小未较长的人物介绍、群聊信息和工具说明，表现为重复问候或忽略当前问题。`supports_tools` 只有在所选模型实际支持 Ollama 工具调用时才能设为 `true`。接着把 `~/.FutureWork/agents/assistant.toml` 中的 `[model] id` 改为 `ollama_local`，让小未的聊天、任务分派工具调用和群中控也使用本地模型：
 
 ```toml
 [model]

@@ -130,6 +130,9 @@ def test_every_agent_sees_user_profile_and_assistant_gets_skill_creator(tmp_path
             assert "中文简答" in request.messages[0]["content"]
             if "小未" in request.messages[0]["content"]:
                 assert "创建 FutureWork Skill" in request.messages[0]["content"]
+                assert "当前团队 Agent 好友" in request.messages[0]["content"]
+                assert "小T" in request.messages[0]["content"]
+                assert "媒体群" in request.messages[0]["content"]
                 assert "plan_update" in {item["function"]["name"] for item in request.tools}
                 assert "skill_create" in {item["function"]["name"] for item in request.tools}
             return ModelResult(text="完成")
