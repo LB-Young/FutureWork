@@ -47,6 +47,25 @@ futurework serve
 
 `futurework init` 创建用户目录和缺失的初始配置；默认位置是 `~/.FutureWork/`。`futurework doctor` 检查 TOML 配置和外部 Agent 的本机 CLI 健康状态；执行器不可用时返回非零状态。它不会连接模型服务，也不保证模型 ID、账户余额或密钥有效。`futurework serve` 默认只监听 `127.0.0.1:8000`。浏览器打开 <http://127.0.0.1:8000/>；接口文档在 <http://127.0.0.1:8000/docs>。
 
+### 关闭并重新启动服务
+
+如果 `futurework serve` 正在当前终端前台运行，按 `Ctrl+C` 停止；等待出现 `Application shutdown complete` 后，再执行 `futurework serve`。
+
+如果终端已经关闭，或启动时报 `address already in use`，先查看占用端口的进程：
+
+```bash
+lsof -nP -iTCP:8000 -sTCP:LISTEN
+```
+
+确认输出的进程确实是要关闭的 FutureWork 服务后，记下 `PID` 列，用实际数字替换下面示例中的 `12345`，再重新启动：
+
+```bash
+kill -TERM 12345
+futurework serve
+```
+
+如果此前用其他端口启动（例如 `8001`），把查询命令里的 `8000` 换成对应端口。不要仅凭端口号关闭不认识的进程；先检查 `COMMAND` 和 `PID`。启动前仍需在当前终端设置所用模型的密钥环境变量。
+
 初始配置让小未和示例 Agent 使用 DeepSeek。如果使用云端 DeepSeek，先在**启动 FutureWork 的同一个终端**设置环境变量，再运行服务：
 
 ```bash
