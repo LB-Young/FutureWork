@@ -1,0 +1,7 @@
+# 创建可配置协作群聊；模型调用必须通过工具审批。
+schema_version = 1
+id = "team_create"
+version = "0.1.0"
+kind = "tool"
+executor = "futurework.abilities.tools.team_create.handler:run"
+enabled = true

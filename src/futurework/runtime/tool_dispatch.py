@@ -11,6 +11,8 @@ import httpx
 
 from futurework.abilities.tools.bash import handler as bash_handler
 from futurework.abilities.tools.delegate_task import handler as delegate_handler
+from futurework.abilities.tools.friend_create import handler as friend_create_handler
+from futurework.abilities.tools.team_create import handler as team_create_handler
 from futurework.abilities.tools.calculator import handler as calculator_handler
 from futurework.abilities.tools.edit import handler as edit_handler
 from futurework.abilities.tools.glob import handler as glob_handler
@@ -40,10 +42,22 @@ from futurework.kinds import ASSISTANT, FRIEND, TEAM, DELEGATION_AUTO
 
 SCHEMAS = {
     "delegate_task": ("Assign a complex task to a capable Agent friend or team; XiaoWei only. "
-                      "Use when another specialist or a group should do work, then summarize its actual result.",
+                      "Only select existing friends or teams. If no friend matches, use friend_create first, "
+                      "then call delegate_task again. Summarize only actual results.",
                       {"request": {"type": "string"},
                        "target_kind": {"type": "string", "enum": [DELEGATION_AUTO, FRIEND, TEAM]},
                        "target_id": {"type": "string"}}, ["request"]),
+    "friend_create": ("Create an Agent friend with a name, role, model alias, permitted tools, enabled Skills and capabilities; XiaoWei only. Requires approval.",
+                      {"name": {"type": "string"}, "role": {"type": "string"},
+                       "model": {"type": "string"},
+                       "tools": {"type": "array", "items": {"type": "string"}},
+                       "skills": {"type": "array", "items": {"type": "string"}},
+                       "capabilities": {"type": "object"}}, ["name", "role", "model", "tools", "skills"]),
+    "team_create": ("Create a Team from existing friend IDs in controlled or swarm mode; XiaoWei only. Requires approval.",
+                    {"name": {"type": "string"},
+                     "member_ids": {"type": "array", "items": {"type": "string"}},
+                     "mode": {"type": "string", "enum": ["controlled", "swarm"]}},
+                    ["name", "member_ids", "mode"]),
     "skill_create": ("Create a reusable Skill in the user's abilities directory; requires approval.",
                      {"name": {"type": "string"}, "description": {"type": "string"},
                       "instructions": {"type": "string"}}, ["name", "description", "instructions"]),
@@ -109,7 +123,7 @@ SCHEMAS = {
               "timeout": {"type": "integer"}}, ["command"]),
 }
 
-PUBLIC_TOOLS = tuple(name for name in SCHEMAS if name not in {"read_file", "glob_files", "grep_files", "memory_search", "user_profile_update", "delegate_task"})
+PUBLIC_TOOLS = tuple(name for name in SCHEMAS if name not in {"read_file", "glob_files", "grep_files", "memory_search", "user_profile_update", "delegate_task", "friend_create", "team_create"})
 REPLAY_SAFE_TOOLS = frozenset({"calculator", "read", "read_file", "glob", "glob_files", "grep", "grep_files",
                                "memory_search", "skill_load", "web_fetch", "schedule_list"})
 
@@ -146,7 +160,7 @@ class ToolRegistry:
 
     def __init__(self, agent_id: str, grants: tuple[str, ...] | list[str], config: dict,
                  scope: ScopeKey | None = None, memory_store: MemoryStore | None = None,
-                 delegation_service=None) -> None:
+                 delegation_service=None, agent_service=None, group_service=None) -> None:
         self.agent_id = agent_id
         self.scope = scope
         self.memory_retriever = MemoryRetriever(memory_store) if scope and memory_store and config["memory"]["search_enabled"] else None
@@ -156,6 +170,8 @@ class ToolRegistry:
         self.grants = tuple(dict.fromkeys((*grants, *intrinsic))) if scope else tuple(grants)
         self.config = config
         self.delegation_service = delegation_service
+        self.agent_service = agent_service
+        self.group_service = group_service
         self.mcp_servers = tuple(config.get("agent_extensions", {}).get(agent_id, {}).get("mcp", []))
 
     def schemas(self) -> list[dict]:
@@ -213,6 +229,17 @@ class ToolRegistry:
                 if self.agent_id != ASSISTANT or self.scope is None or self.scope.kind != ASSISTANT or self.delegation_service is None:
                     return ToolResult("delegation is available only to XiaoWei's personal conversation", False)
                 content = await delegate_handler.run(arguments, self.delegation_service)
+            elif name in {"friend_create", "team_create"}:
+                if self.agent_id != ASSISTANT or self.scope is None or self.scope.kind != ASSISTANT:
+                    return ToolResult("creation is available only to XiaoWei's personal conversation", False)
+                if name == "friend_create":
+                    if self.agent_service is None:
+                        return ToolResult("friend creation service is unavailable", False)
+                    content = friend_create_handler.run(arguments, self.agent_service)
+                else:
+                    if self.group_service is None:
+                        return ToolResult("team creation service is unavailable", False)
+                    content = team_create_handler.run(arguments, self.group_service)
             elif name == "memory_search":
                 if self.memory_retriever is None or self.scope is None:
                     return ToolResult("memory search is unavailable for this run", False)

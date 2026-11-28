@@ -89,6 +89,8 @@ def load_config(home: Path) -> dict:
         tool_defaults = tomllib.load(source)
     config["tool_execution"] = _merge(tool_defaults["execution"], raw["settings"]["tools"].get("execution", {}))
     policy = config["tool_execution"]
+    policy["require_approval_for"] = list(dict.fromkeys(
+        [*policy["require_approval_for"], "friend_create", "team_create"]))
     if any(type(policy[key]) is not int or policy[key] < 1 for key in ("max_attempts", "max_input_chars", "max_output_chars")):
         raise ValueError("invalid tool execution integer limit")
     if any(type(policy[key]) not in (int, float) or policy[key] <= 0 for key in

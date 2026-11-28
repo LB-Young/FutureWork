@@ -5,7 +5,7 @@ from uuid import uuid4
 
 from futurework.database import utc_now
 from futurework.contexts.types import ScopeKey
-from futurework.kinds import SWARM, CONTROLLED, TEAM
+from futurework.kinds import ASSISTANT, SWARM, CONTROLLED, TEAM
 
 
 class GroupServiceError(Exception):
@@ -29,7 +29,9 @@ class GroupService:
     def create(self, name: str, member_ids: list[str], mode: str) -> dict:
         """Persist a group and its TOML definition in one rollback batch."""
         members = list(dict.fromkeys(member_ids))
-        if not name.strip() or len(name.strip()) > self.config["limits"]["max_group_name_chars"] or len(members) > self.config["limits"]["max_group_members"]:
+        if (not name.strip() or len(name.strip()) > self.config["limits"]["max_group_name_chars"]
+                or not members or len(members) > self.config["limits"]["max_group_members"]
+                or ASSISTANT in members):
             raise GroupServiceError(422, "invalid group name or member count")
         if mode not in {SWARM, CONTROLLED}:
             raise GroupServiceError(422, "invalid group mode")

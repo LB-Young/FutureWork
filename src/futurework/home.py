@@ -63,8 +63,8 @@ def ensure_home(override: str | Path | None = None) -> Path:
     if assistant_file.is_file():
         assistant_doc = tomlkit.parse(assistant_file.read_text(encoding="utf-8"))
         tools = list(assistant_doc.get("tools", []))
-        if "delegate_task" not in tools:
-            tools.append("delegate_task")
+        if any(name not in tools for name in ("delegate_task", "friend_create", "team_create")):
+            tools.extend(name for name in ("delegate_task", "friend_create", "team_create") if name not in tools)
             assistant_doc["tools"] = tools
             from futurework.abilities.tools.management import atomic_text
             atomic_text(assistant_file, tomlkit.dumps(assistant_doc))

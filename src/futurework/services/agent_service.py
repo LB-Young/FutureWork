@@ -7,6 +7,8 @@ from uuid import uuid4
 from futurework.algorithm import TaskPlanner
 from futurework.contexts.types import ScopeKey
 from futurework.database import decode_agent, utc_now
+from futurework.extension_system.skill_loader import load_skills
+from futurework.kinds import FRIEND, NATIVE
 
 
 class AgentServiceError(Exception):
@@ -29,18 +31,46 @@ class AgentService:
         self.memory_store = memory_store
         self.planner = TaskPlanner(config)
 
-    def create_agent(self, name: str, role: str) -> dict:
+    def create_agent(self, name: str, role: str, *, model: str | None = None,
+                     tools: list[str] | None = None, skills: list[str] | None = None,
+                     capabilities: dict[str, float] | None = None) -> dict:
         """Validate an explicit Agent request, create its file, and greet the user."""
         name, role = name.strip(), role.strip()
         if not name or not role or len(name) > self.config["limits"]["max_agent_name_chars"] or len(role) > self.config["limits"]["max_agent_role_chars"]:
             raise AgentServiceError(422, "agent name or role is too long")
+        selected_model = model or self.config["model"]["default_model"]
+        if selected_model not in self.config["model"]["available_models"]:
+            raise AgentServiceError(422, "model is not available")
+        if self.config["models"]["models"][selected_model].get("model_type", "text") not in {"text", "vision"}:
+            raise AgentServiceError(422, "Agent conversation needs a text or vision model")
+        selected_tools = list(self.config["permissions"]["safe_default_tools"] if tools is None else tools)
+        if len(selected_tools) != len(set(selected_tools)) or not set(selected_tools).issubset(
+                self.config["permissions"]["available_tools"]):
+            raise AgentServiceError(422, "unknown or duplicate tool")
+        selected_skills = list(skills or [])
+        if len(selected_skills) != len(set(selected_skills)):
+            raise AgentServiceError(422, "duplicate Skill")
+        try:
+            load_skills(self.config["home"], selected_skills, self.config["skill_policy"]["max_skill_chars"])
+        except ValueError as error:
+            raise AgentServiceError(422, str(error)) from error
         capability = self.planner.plan_steps(role)[0]["capability"]
+        selected_capabilities = capabilities if capabilities is not None else {
+            capability: self.config["matching"]["auto_agent_proficiency"]}
+        if not selected_capabilities or any(not isinstance(key, str) or not key.strip()
+                                            or type(value) not in (int, float) or not 0 < value <= 1
+                                            for key, value in selected_capabilities.items()):
+            raise AgentServiceError(422, "capabilities must map names to proficiency in (0, 1]")
         with self.config_store.batch() as write_config, self.database.transaction() as connection:
-            created = self.create(connection, write_config, name, role, capability)
+            created = self.create(connection, write_config, name, role, capability,
+                                  model=selected_model, tools=selected_tools,
+                                  skills=selected_skills, capabilities=selected_capabilities)
             self.message_service.insert(connection, created["id"], "agent", created["name"],
                                         f"你好，我是{created['name']}。我的职责是{created['role']}。")
         if self.memory_store is not None:
-            self.memory_store.ensure_profile(ScopeKey("agent", created["id"]))
+            self.memory_store.ensure_profile(ScopeKey(FRIEND, created["id"]))
+        self.config["agent_execution"][created["id"]] = {"kind": NATIVE}
+        self.config["agent_extensions"][created["id"]] = {"skills": selected_skills}
         return created
 
     def patch_agent(self, agent_id: str, proposal: dict) -> dict:
@@ -102,7 +132,9 @@ class AgentService:
                                                                    "conversation_id": row["conversation_id"], "status": status})
         return {"id": approval_id, "status": status}
 
-    def create(self, connection, write_config, name: str, role: str, capability: str) -> dict:
+    def create(self, connection, write_config, name: str, role: str, capability: str, *,
+               model: str | None = None, tools: list[str] | None = None,
+               skills: list[str] | None = None, capabilities: dict[str, float] | None = None) -> dict:
         """Create an Agent in an existing database and file batch."""
         if connection.execute("SELECT COUNT(*) FROM agents WHERE status='active'").fetchone()[0] >= self.config["limits"]["max_agents"]:
             raise AgentServiceError(409, "agent limit reached")
@@ -115,8 +147,10 @@ class AgentService:
         agent = {
             "id": str(uuid4()), "name": unique_name, "role": role.strip(), "icon": unique_name[0],
             "color": self.config["ui"]["default_agent_color"], "ink": self.config["ui"]["default_agent_ink"],
-            "model": self.config["model"]["default_model"], "tools": list(self.config["permissions"]["safe_default_tools"]),
-            "capabilities": {capability: self.config["matching"]["auto_agent_proficiency"]},
+            "model": model or self.config["model"]["default_model"],
+            "tools": list(self.config["permissions"]["safe_default_tools"] if tools is None else tools),
+            "capabilities": capabilities or {capability: self.config["matching"]["auto_agent_proficiency"]},
+            "skills": list(skills or []),
             "approval": True, "version": 1, "status": "active",
         }
         self.database.insert_agent(connection, agent)

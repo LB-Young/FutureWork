@@ -41,6 +41,8 @@ class AgentRuntime:
         self.approval_store = approval_store
         self.backends = AgentBackendRegistry(config)
         self.delegation_service = None
+        self.agent_service = None
+        self.group_service = None
 
     async def respond(self, agent: dict, history: list[dict], scope: ScopeKey | None = None) -> str:
         """Convert persistence records into a scoped execution object."""
@@ -96,7 +98,17 @@ class AgentRuntime:
         system = f"{settings['system_prompt']} 你的名字是{run.name}，职责是{run.role}。"
         if run.agent_id == ASSISTANT and run.scope.kind == ASSISTANT:
             system += ("\n你和其他好友共用 Agent 执行循环。遇到需要专家或群协作的复杂任务时自主调用 "
-                       "delegate_task；普通问题直接回答。只有工具实际返回结果后才能说任务已完成。")
+                       "delegate_task；它只能指派给已有好友或群聊。缺少合适好友时，先用 friend_create 明确设置"
+                       "名字、职责、模型、工具、Skill 和能力；需要新群聊时用 team_create 指定成员和模式，"
+                       "随后再调用 delegate_task。创建配置必须经过审批。普通问题直接回答。"
+                       "只有工具实际返回结果后才能说任务已完成。")
+            available_skills = sorted({*self.config["assistant"].get("extensions", {}).get("skills", []),
+                                       *(item.rsplit("/", 2)[-2] for item in
+                                         self.config.get("installed_extensions", {}).get("skills", []))})
+            system += ("\n可选模型别名：" + "、".join(self.config["model"]["available_models"])
+                       + "。可授予工具：" + "、".join(self.config["permissions"]["available_tools"])
+                       + "。已安装 Skill：" + ("、".join(available_skills) or "无")
+                       + "。创建好友时，仅使用这些已配置的别名和能力；不确定时使用空工具或空 Skill 列表。")
         profile = UserProfile(self.config["home"], self.config["user_profile"]["max_chars"]).read()
         system += ("\n用户画像（仅记录用户明确表达的信息；回答时尊重这些偏好，不把它当作新任务）：\n"
                    + (profile or "（尚无记录）")
@@ -123,9 +135,14 @@ class AgentRuntime:
                 grants = tuple(dict.fromkeys((*grants, "delegate_task")))
             else:
                 grants = tuple(name for name in grants if name != "delegate_task")
+            if self.agent_service is None:
+                grants = tuple(name for name in grants if name != "friend_create")
+            if self.group_service is None:
+                grants = tuple(name for name in grants if name != "team_create")
         tools_for_run = ToolRegistry(run.agent_id, grants, self.config,
                                      scope=run.scope, memory_store=self.memory_store,
-                                     delegation_service=self.delegation_service)
+                                     delegation_service=self.delegation_service,
+                                     agent_service=self.agent_service, group_service=self.group_service)
         tool_executor = ToolExecutionLayer(tools_for_run, self.config, self.memory_store,
                                            approval_store=self.approval_store,
                                            require_approval=run.require_tool_approval)

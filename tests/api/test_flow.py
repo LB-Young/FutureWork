@@ -31,11 +31,14 @@ def test_assistant_dispatch_and_agent_file_survive_restart(tmp_path, monkeypatch
     monkeypatch.setattr(ModelGateway, "generate", fake_generate)
     home = sample_home(tmp_path / "home")
     client = TestClient(create_app(home))
+    created_response = client.post("/api/v1/agents", json={"name": "竞品专家", "role": "竞品分析",
+                                   "capabilities": {"analysis.competitor": 0.95}})
+    assert created_response.status_code == 201
     response = send(client, "assistant", "请做竞品分析")
     assert response.status_code == 202
     task = client.get(f"/api/v1/tasks/{response.json()['task_id']}").json()
     assert task["status"] == "completed"
-    created = next(item for item in client.get("/api/v1/agents").json() if "analysis.competitor" in item["capabilities"])
+    created = created_response.json()
     with (home / "agents" / f"{created['id']}.toml").open("rb") as source:
         assert tomllib.load(source)["model"]["id"] == "default_fast"
     assert any(item["id"] == created["id"] for item in TestClient(create_app(home)).get("/api/v1/agents").json())

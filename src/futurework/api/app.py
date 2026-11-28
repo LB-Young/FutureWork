@@ -44,6 +44,10 @@ class MessageInput(BaseModel):
 class AgentInput(BaseModel):
     name: str = Field(min_length=1)
     role: str = Field(min_length=1)
+    model: str | None = None
+    tools: list[str] | None = None
+    skills: list[str] | None = None
+    capabilities: dict[str, float] | None = None
 
 
 class AgentPatch(BaseModel):
@@ -127,8 +131,10 @@ def create_app(home: str | Path | None = None, db_path: str | Path | None = None
                                message_service=message_service, agent_service=agent_service,
                                agent_runtime=agent_runtime)
     agent_runtime.delegation_service = DelegationService(
-        database, config, config_store, agent_service, message_service,
+        database, config, message_service,
         agent_runtime, task_runtime.team)
+    agent_runtime.agent_service = agent_service
+    agent_runtime.group_service = group_service
     recovery_worker = TaskRecoveryWorker(database, config, message_service, task_runtime)
     workflow_runner = WorkflowRunner(user_home, config["workflow"])
     scheduler = ScheduleStore(user_home, config["schedule"])
@@ -224,7 +230,9 @@ def create_app(home: str | Path | None = None, db_path: str | Path | None = None
 
     @app.post("/api/v1/agents", status_code=201)
     def create_agent(body: AgentInput):
-        return agent_service.create_agent(body.name, body.role)
+        return agent_service.create_agent(body.name, body.role, model=body.model,
+                                          tools=body.tools, skills=body.skills,
+                                          capabilities=body.capabilities)
 
     @app.patch("/api/v1/agents/{agent_id}")
     def patch_agent(agent_id: str, body: AgentPatch):

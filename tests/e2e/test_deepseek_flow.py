@@ -31,6 +31,8 @@ def test_assistant_task_calls_deepseek_and_persists_result(tmp_path, monkeypatch
     monkeypatch.setattr(openai_chat.httpx, "AsyncClient", lambda **kwargs: original_client(transport=httpx.MockTransport(handle), **kwargs))
     monkeypatch.setenv("DEEPSEEK_API_KEY", "test-only-key")
     client = TestClient(create_app(ensure_home(tmp_path / "home")))
+    assert client.post("/api/v1/agents", json={"name": "竞品专家", "role": "竞品分析",
+                       "capabilities": {"analysis.competitor": 0.95}}).status_code == 201
     response = client.post("/api/v1/conversations/assistant/messages", json={
         "client_message_id": str(uuid4()), "body": "请做竞品分析",
     })

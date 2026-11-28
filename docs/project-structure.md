@@ -412,7 +412,7 @@ Web / App / API / CLI → RunParams → TaskFactory → TaskRuntime
                                                      └─ AgentRuntime（成员，使用群 ScopeKey）
 ```
 
-`delegate_task` 是小未配置中独有的模型工具。小未可直接回答简单问题；模型认为需要分工时调用该工具，并选择自动匹配、指定好友或指定群。工具调用进入 `ToolExecutionLayer` 进行 schema、授权、审批和输出检查；随后由 `DelegationService` 使用 TaskPlanner 匹配已有能力、必要时创建新好友配置、持久化任务和步骤，并在本次请求内执行。自动规划不是入口前置动作。群目标进入 TeamRuntime，个人好友目标进入同一 AgentRuntime。小未的群中控使用群作用域，不获得个人会话的分派工具。
+`delegate_task` 只在小未个人会话中开放，用于指派给已有好友或群聊。自动匹配由 `DelegationService` 调用 TaskPlanner；若缺少能力，返回建议且不创建任务或好友。`friend_create` 是独立的好友创建工具，可设置名称、职责、已有模型别名、工具、Skill 和能力；`team_create` 是独立的群创建工具，可设置已有成员及 `swarm`／`controlled` 模式。这两个创建工具必须经单次审批，随后由现有 AgentService／GroupService 校验并写入配置。小未可以在创建成功后再次调用 `delegate_task`。群目标进入 TeamRuntime，个人好友目标进入同一 AgentRuntime；小未的群中控使用群作用域，不获得这些个人会话工具。
 
 各层错误政策独立配置：`runtime.toml [task_retry]` 只重试安全的传输失败且不能在已发生工具副作用后重放整个任务；`[agent_retry]` 在模型调用前/期间对暂时网络错误进行有限重试；`[team_retry]` 对成员调用和中控选择进行有限重试。`tools.toml [execution]` 仅对可重放的读类工具自动重试，其他工具失败将错误码与尝试次数反馈给 Agent，由模型选择替代方案。401/403、参数/授权错误、配置错误和外部 Agent 结果不确定都直接终止自动重试。模型网关仍有供应商级的短暂 HTTP 重试预算。外部 Codex、OpenClaw、Claude Code 属于 AgentRuntime 的执行后端，不改变任务或群作用域。
 

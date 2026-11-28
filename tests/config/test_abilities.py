@@ -39,6 +39,19 @@ def test_new_home_installs_multimedia_and_user_ability_directories(tmp_path):
     assert any(item.agent_id == "video" for item in TaskPlanner(config).assign_steps("生成视频", agents))
 
 
+def test_existing_assistant_gets_creation_tools_without_losing_grants(tmp_path):
+    home = ensure_home(tmp_path / "home")
+    path = home / "agents" / "assistant.toml"
+    source = path.read_text(encoding="utf-8")
+    path.write_text(source.replace('"friend_create", "team_create", ', ''), encoding="utf-8")
+    ensure_home(home)
+    config = load_config(home)
+    assert {"delegate_task", "friend_create", "team_create", "calculator"}.issubset(
+        set(config["assistant"]["tools"]))
+    assert {"friend_create", "team_create"}.issubset(
+        set(config["tool_execution"]["require_approval_for"]))
+
+
 def test_user_profile_shared_and_bounded_and_plan_revisions(tmp_path):
     home = ensure_home(tmp_path / "home")
     config = load_config(home)

@@ -1,0 +1,7 @@
+# 创建可配置 Agent 好友；模型调用必须通过工具审批。
+schema_version = 1
+id = "friend_create"
+version = "0.1.0"
+kind = "tool"
+executor = "futurework.abilities.tools.friend_create.handler:run"
+enabled = true

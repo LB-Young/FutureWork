@@ -21,7 +21,7 @@ FutureWork 是一个可以在本机安装和运行的 Agent 团队应用。界�
 
 | 模块 | 当前实现 |
 | --- | --- |
-| 个人助理 | 小未与好友使用同一个 Agent loop。小未根据请求自主调用 `delegate_task`；该工具才会规划、匹配或创建好友，并可指派给群聊。简单问题由小未直接回答。 |
+| 个人助理 | 小未与好友使用同一个 Agent loop。`delegate_task` 只向已有好友或群聊分派任务；创建好友用 `friend_create`，创建群聊用 `team_create`，两者调用前均需审批。简单问题由小未直接回答。 |
 | 对话执行入口 | Web、无页面 API、桌面 App 和 CLI 都进入相同的 `RunParams → TaskFactory → TaskRuntime` 链；TaskRuntime 按会话目标路由，不预先分类聊天/任务。 |
 | 对象调用链 | `TaskRuntime` 持有 `AgentRuntime` 和 `TeamRuntime`；`AgentRuntime` 持有模型网关，单次运行创建授权工具注册表；API 持有消息、Agent 和群聊服务对象。 |
 | Agent 好友 | 每位好友由独立 TOML 定义，拥有自己的能力、权限和私聊历史；可选内置模型、Codex、OpenClaw、JSONL 进程或 HTTP 执行后端。 |
@@ -126,7 +126,7 @@ supports_tools = false
 id = "ollama_local"
 ```
 
-如果希望**自动新建的 Agent**也默认使用 Ollama，把 `~/.FutureWork/app.toml` 中的 `[model] default_model` 改为 `ollama_local`。已有好友不会跟着改变；请逐个修改 `~/.FutureWork/agents/<好友ID>.toml` 的 `[model] id`，或者在页面为好友改模型。检查配置并重启：
+如果希望**新建 Agent 的默认模型**是 Ollama，把 `~/.FutureWork/app.toml` 中的 `[model] default_model` 改为 `ollama_local`。已有好友不会跟着改变；请逐个修改 `~/.FutureWork/agents/<好友ID>.toml` 的 `[model] id`，或者在页面为好友改模型。检查配置并重启：
 
 ```bash
 futurework doctor
@@ -159,7 +159,35 @@ remote_id = "Qwen/Qwen2.5-7B-Instruct"
 supports_tools = false
 ```
 
-将小未、已有好友和自动新建 Agent 的模型别名按上一节的方法改为 `vllm_local`。如果 vLLM 使用了 `--served-model-name`，`remote_id` 要与其公开的名称一致。若推理服务要求 Bearer 密钥，在 Provider 表中填写 `api_key_env = "你的环境变量名"`，并把 `allow_no_key` 设为 `false`；密钥仍由环境变量提供。
+将小未、已有好友或新建 Agent 的模型别名按上一节的方法改为 `vllm_local`。如果 vLLM 使用了 `--served-model-name`，`remote_id` 要与其公开的名称一致。若推理服务要求 Bearer 密钥，在 Provider 表中填写 `api_key_env = "你的环境变量名"`，并把 `allow_no_key` 设为 `false`；密钥仍由环境变量提供。
+
+### 同时配置多个 Ollama 和 vLLM 服务
+
+`models.toml` 的每个 `[providers.<名称>]` 对应一个服务地址，每个 `[models.<别名>]` 对应一个模型。可以同时配置多个本机端口，并让不同好友在各自 TOML 的 `[model] id` 选择不同别名。例如在 `~/.FutureWork/models.toml` 末尾追加：
+
+```toml
+[providers.ollama_second]
+adapter = "openai_chat"
+base_url = "http://127.0.0.1:11435/v1"
+allow_no_key = true
+
+[providers.vllm_code]
+adapter = "openai_chat"
+base_url = "http://127.0.0.1:8011/v1"
+allow_no_key = true
+
+[models.ollama_qwen3]
+provider = "ollama_second"
+remote_id = "qwen3:8b"
+supports_tools = true
+
+[models.vllm_coder]
+provider = "vllm_code"
+remote_id = "local-code"
+supports_tools = true
+```
+
+然后给好友甲设置 `[model] id = "ollama_qwen3"`，给好友乙设置 `[model] id = "vllm_coder"`；小未也可以选择其中一个别名。`supports_tools` 必须与该服务的实际工具调用能力一致；小未若要调用分派、创建等工具，其模型必须支持工具调用。`8011` 只是示例端口，按实际 vLLM 端口填写。修改 `models.toml` 或手写好友 TOML 后重启 FutureWork；在运行中的页面或 API 创建好友时，可以直接选已加载的模型别名。
 
 ### 局域网或容器中的推理服务
 
@@ -218,7 +246,7 @@ futurework serve
 
 上面的地址只是填写位置，不是实际可访问地址。`HTTP_PROVIDER_BASE_URL` 只有选用该模型时才会读取；`futurework doctor` 可在未设置公司环境变量时检查其他配置。实际 `remote_id` 应按公司服务要求修改；当前示例会按 Bamboo 的规则将开头的 `local_` 去掉后发送。模型如需额外请求字段，可在 `[models.company_http_local.extra_body.request]` 下填写；如需额外请求头，可在 `[providers.company_http.extra_headers]` 或 `[models.company_http_local.extra_headers]` 下填写。请求头的值也可以写成完整的 `${环境变量名}` 引用，使用时再解析。只有公司服务支持同样的工具调用格式时，才把 `supports_tools` 设为 `true`。
 
-切换小未及好友的方法与 Ollama 相同：将各自 TOML 的 `[model] id` 改为 `company_http_local`；将 `app.toml` 的 `[model] default_model` 改成该别名，才会影响之后自动创建的 Agent。服务使用局域网明文 HTTP 时保留 `allow_insecure_http = true`；使用 HTTPS 可以设为 `false`。不要把公司真实端点、密钥或内部请求头提交到仓库。
+切换小未及好友的方法与 Ollama 相同：将各自 TOML 的 `[model] id` 改为 `company_http_local`；将 `app.toml` 的 `[model] default_model` 改成该别名，会影响之后创建且未显式指定模型的 Agent。服务使用局域网明文 HTTP 时保留 `allow_insecure_http = true`；使用 HTTPS 可以设为 `false`。不要把公司真实端点、密钥或内部请求头提交到仓库。
 
 ## 模型配置说明
 
@@ -261,7 +289,15 @@ id = "ollama_local"
 "research.web" = 0.9
 ```
 
-用户在小未的聊天区发消息后，小未先进入与其他好友相同的 Agent loop。模型认为需要其他好友或群协作时，可调用 `delegate_task`，指定好友、群，或选择自动匹配。自动匹配才按 `app.toml` 中的 `[[planner.rules]]` 关键词形成步骤，并依据 Agent 能力分值和 `[matching]` 阈值选择好友；缺少合适好友时创建新的 TOML 文件并给予最小默认权限。简单问题可以直接回答，不产生分派任务。
+用户在小未的聊天区发消息后，小未先进入与其他好友相同的 Agent loop。模型认为需要其他好友或群协作时，可调用 `delegate_task`，指定已有好友、已有群，或选择自动匹配。自动匹配按 `app.toml` 中的 `[[planner.rules]]` 关键词形成步骤，并依据 Agent 能力分值和 `[matching]` 阈值选择好友；缺少合适好友时只返回缺失的能力和建议配置，**不会暗中创建**。小未应先用 `friend_create` 创建并配置好友，再重新分派。需要新群聊时，用 `team_create` 指定已有好友 ID 和 `controlled` 或 `swarm` 模式，之后再分派。创建工具调用会显示审批，批准后才写配置。简单问题可以直接回答，不产生分派任务。
+
+创建好友时可以指定 `name`、`role`、已配置的 `model` 别名、`tools` 列表、`skills` 列表和能力熟练度映射 `capabilities`；创建结果会写入 `~/.FutureWork/agents/<ID>.toml`，Skill 写入同一文件的 `[extensions] skills`。例如调用 `POST /api/v1/agents` 时提交：
+
+```json
+{"name":"本地研究员","role":"竞品研究","model":"ollama_qwen3","tools":["read","grep"],"skills":[],"capabilities":{"analysis.competitor":0.9}}
+```
+
+群聊可通过 `POST /api/v1/groups` 提交 `{"name":"研究群","member_ids":["好友ID"],"mode":"swarm"}`。`friend_create` 和 `team_create` 使用同一创建服务和配置校验；前者不能使用未在 `models.toml` 配置的模型或未安装的 Skill，后者只能选择已有且可用的好友。
 
 每个群由 `~/.FutureWork/teams/<ID>.toml` 定义。群成员填写 Agent ID，不复制成员的模型或工具配置。`swarm` 没有中控；`controlled` 的 `[controller] agent_id` 必须是 `assistant`。示例：
 
@@ -286,7 +322,7 @@ agent_id = "assistant"
 
 当前消息执行链为 `POST /conversations/{id}/messages → RunParams → TaskFactory → TaskRuntime → AgentRuntime 或 TeamRuntime`。`RunParams` 包含入口来源、会话目标快照、消息正文及客户端消息 ID；工厂只按会话目标创建 `agent_chat`、`group_swarm` 或 `group_controlled` 三类 Task，不调用模型、不写数据库。小未和其他好友统一进入 AgentRuntime；小未选择调用 `delegate_task` 时才由工具执行层创建并运行持久任务。查询、配置修改和审批接口仍走各自的业务路径。
 
-运行时依赖在启动时装配一次：TaskRuntime 负责幂等、持久化用户消息、路由和任务级错误处理；AgentRuntime 拥有小未与好友的同一套模型/工具 loop；TeamRuntime 持有 SwarmPolicy 或 GroupController 并调用成员的 AgentRuntime。`TaskPlanner` 只存在于 `delegate_task` 的执行服务中，由小未实际调用后才进行规则拆解和能力匹配。模型网关按别名缓存适配器；Agent、Team 和 Task 各有独立的有限重试配置，工具执行层只自动重试可重放读类工具。全部重试次数和退避参数都在用户目录的 `runtime.toml`、`tools.toml` 与 `app.toml` 中。
+运行时依赖在启动时装配一次：TaskRuntime 负责幂等、持久化用户消息、路由和任务级错误处理；AgentRuntime 拥有小未与好友的同一套模型/工具 loop；TeamRuntime 持有 SwarmPolicy 或 GroupController 并调用成员的 AgentRuntime。`TaskPlanner` 只存在于 `delegate_task` 的执行服务中，由小未实际调用后才进行规则拆解和已有好友的能力匹配。模型网关按别名缓存适配器；Agent、Team 和 Task 各有独立的有限重试配置，工具执行层只自动重试可重放读类工具。全部重试次数和退避参数都在用户目录的 `runtime.toml`、`tools.toml` 与 `app.toml` 中。
 
 ## 工具、权限与审批
 
@@ -299,13 +335,16 @@ agent_id = "assistant"
 | `write` | 创建或覆盖 UTF-8 文件 | 只能写入工作区，使用原子替换；新增授权需要配置审批。 |
 | `edit` | 精确替换已有文件的文本 | 支持一次替换与多处全量匹配替换；新增授权需要配置审批。 |
 | `skill_load` | 读取完整 Skill 说明 | 只读取当前 Agent 已在 `[extensions]` 启用的 Skill。 |
+| `delegate_task` | 向已有好友或群聊指派任务 | 只在小未私聊开放；能力缺失时返回建议，不创建配置。 |
+| `friend_create` | 创建并配置 Agent 好友 | 只在小未私聊开放，指定模型、工具、Skill 和能力；调用前必须审批。 |
+| `team_create` | 创建协作群聊 | 只在小未私聊开放，指定已有好友和 `controlled`／`swarm` 模式；调用前必须审批。 |
 | `web_fetch` | 读取公共网页文本 | 拒绝本地/私有 IP，每次跳转重新检查目标地址，限制响应大小、跳转次数和时长；新增授权需要配置审批。 |
 | `url_to_md` | 把公共网页可见文本保存为 Markdown | 仅保存至工作区；新增授权需要配置审批。 |
 | `bash` | 在工作区目录执行 POSIX shell 命令 | 需 Agent 授权且 `[tool_runtime] allow_shell = true`；限制超时和回传输出。**当前没有操作系统沙箱**，开启后命令仍可能访问工作区外的本机资源。 |
 
 默认工作区是 `~/.FutureWork/workspace/`。调整 `~/.FutureWork/app.toml` 的 `[tool_runtime] workspace` 可改变路径；同一配置表还控制工具轮数、每轮调用数、文件大小、网页大小、命令超时和输出长度。工具真正执行前会再次检查该 Agent 的 `tools` 授权。文件工具不能通过 `../` 或指向工作区外的符号链接读取外部文件。新建 Agent 的安全默认工具由 `app.toml [permissions] safe_default_tools` 控制；小未、小T、小V分别使用自己的 TOML 工具列表。已有用户目录中的自定义 Agent TOML 不会自动改写。
 
-页面为好友增加 `write`、`edit`、`web_fetch`、`url_to_md` 或 `bash` 等高风险工具授权时会产生**配置变更审批**，批准后写回该好友 TOML。模型实际调用工具时，执行层再次检查 Agent ID、会话作用域和授权；`tools.toml [execution] require_approval_for` 列出的工具会产生**单次调用审批**，显示工具名和具体参数。当前默认包含 `write`、`edit`、`bash`、`url_to_md`、`schedule_create`、`skill_create`、媒体生成、视频编辑和 MCP 调用等。用户在待审批区批准后，运行中的调用才继续；拒绝或超时不会执行。审批等待期间如果该 Agent 的授权被撤销，也不会执行。Agent 配置的 `approval = false` 可以跳过单次调用审批，但关闭它本身需要走配置变更审批。手工编辑用户自己的 Agent TOML 也可以改变授权，重启后生效。`bash` 还必须额外在 `app.toml` 的 `[tool_runtime]` 中手工开启：
+页面为好友增加 `write`、`edit`、`web_fetch`、`url_to_md` 或 `bash` 等高风险工具授权时会产生**配置变更审批**，批准后写回该好友 TOML。模型实际调用工具时，执行层再次检查 Agent ID、会话作用域和授权；`tools.toml [execution] require_approval_for` 列出的工具会产生**单次调用审批**，显示工具名和具体参数。当前默认包含 `write`、`edit`、`bash`、`url_to_md`、`schedule_create`、`skill_create`、`friend_create`、`team_create`、媒体生成、视频编辑和 MCP 调用等。用户在待审批区批准后，运行中的调用才继续；拒绝或超时不会执行。审批等待期间如果该 Agent 的授权被撤销，也不会执行。Agent 配置的 `approval = false` 可以跳过普通工具的单次调用审批，但 `friend_create` 和 `team_create` 始终需要审批；关闭普通工具审批本身需要走配置变更审批。手工编辑用户自己的 Agent TOML 也可以改变授权，重启后生效。`bash` 还必须额外在 `app.toml` 的 `[tool_runtime]` 中手工开启：
 
 ```toml
 [tool_runtime]
@@ -337,7 +376,7 @@ Workflow 可以放在 `~/.FutureWork/abilities/workflows/<ID>/workflow.toml`，�
 
 包内 `src/futurework/abilities/` 统一存放六类内置资源：`tools/`、`skills/`、`mcp/`、`workflows/`、`friends/`、`teams/`。每个可用工具目录都有 `manifest.toml` 和真正执行的 `handler.py`，例如 `tools/read/handler.py` 读取工作区文件、`tools/grep/handler.py` 搜索内容、`tools/bash/handler.py` 执行受限命令、`tools/memory_search/handler.py` 执行分层记忆检索。网页抓取、网页转 Markdown、Skill 加载、计划更新/验收、定时任务创建/查询和用户画像追加也各有执行脚本；共享的路径约束与原子写入放在 `tools/common.py`，计划和定时任务持久化放在 `tools/management.py`、`tools/schedule.py`。`runtime/tool_dispatch.py` 负责工具 schema 和处理器分发；模型调用统一经过工具执行层。未实现的网页搜索占位工具已从内置工具目录移除。
 
-全新初始化仅复制 `assistant.toml`（小未）、`image.toml`（小T）、`video.toml`（小V）和 `multimedia.toml`（媒体群）。随包提供的 Skill **只有 `skill-creator`**，小未默认加载它；小未可在用户提出创建可复用技能时调用 `skill_create`，经单次审批后写入 `~/.FutureWork/abilities/skills/<ID>/`。创建后不会自动授予任何 Agent 使用权，仍需在该 Agent TOML 的 `[extensions] skills` 中启用。Skill 的触发边界、目录结构和验收步骤参考 Bamboo 的 skill-creator，并针对 FutureWork 的权限和用户目录调整。`skill_create` 的名称和内容长度上限由 `extensions.toml [skill_creator]` 控制；创建或改进 Skill 的请求由小未直接处理，识别词可在 `app.toml [assistant_routing]` 调整。动态计划现在是 `plan_update`、`plan_check` 两个内置工具，不再是随包 Skill；计划按作用域和执行者存在 `data/plans/`。旧版小未若仍只引用已移除的 `dynamic_plan`，初始化会把该引用迁移为 `skill-creator` 并加入创建工具；其他自定义 Skill 不会被删除。升级自旧版本时，用户目录里已有的研究、设计等 TOML 和历史记录也不会被自动删除；若希望界面只保留三位默认 Agent，请先核对其会话与记忆，再自行移走旧示例配置并重启。
+全新初始化复制小未、小T、小V、Codex、OpenClaw、Claude Code 的好友配置和媒体群配置。随包提供的 Skill **只有 `skill-creator`**，小未默认加载它；小未可在用户提出创建可复用技能时调用 `skill_create`，经单次审批后写入 `~/.FutureWork/abilities/skills/<ID>/`。创建后不会自动授予任何 Agent 使用权，仍需在该 Agent TOML 的 `[extensions] skills` 中启用。Skill 的触发边界、目录结构和验收步骤参考 Bamboo 的 skill-creator，并针对 FutureWork 的权限和用户目录调整。`skill_create` 的名称和内容长度上限由 `extensions.toml [skill_creator]` 控制；创建或改进 Skill 的请求由小未直接处理，识别词可在 `app.toml [assistant_routing]` 调整。动态计划现在是 `plan_update`、`plan_check` 两个内置工具，不再是随包 Skill；计划按作用域和执行者存在 `data/plans/`。旧版小未若仍只引用已移除的 `dynamic_plan`，初始化会把该引用迁移为 `skill-creator` 并加入创建工具；其他自定义 Skill 不会被删除。升级自旧版本时，用户目录里已有的研究、设计等 TOML 和历史记录也不会被自动删除；若希望界面只保留三位默认 Agent，请先核对其会话与记忆，再自行移走旧示例配置并重启。
 
 `user.md` 首次创建时为空。所有 Agent 的模型提示词都会读取其最多 500 字内容；模型可以调用 `user_profile_update` 追加用户明确表达的稳定信息和偏好，重复事实去重，超出上限拒绝写入。`context.toml [user_profile] max_chars` 可在 1～500 范围内调整。模型不支持工具调用时仍可读取画像，但不会自动更新。
 
@@ -475,7 +514,7 @@ python -m pytest -q
 
 测试使用临时用户目录和模拟 HTTP 响应，不需要真实云平台密钥，也不会自动下载 Ollama/vLLM 模型。要预览早期静态设计原型，可在仓库根目录运行 `python -m http.server 4173`，然后打开 <http://127.0.0.1:4173/frontend/>。
 
-**启动后提示缺少 `DEEPSEEK_API_KEY`：** 检查小未的 `agents/assistant.toml` 和正在参与回复的好友 TOML 是否仍引用 `default_fast`。只改 `app.toml` 的默认模型仅影响后来自动创建的 Agent。
+**启动后提示缺少 `DEEPSEEK_API_KEY`：** 检查小未的 `agents/assistant.toml` 和正在参与回复的好友 TOML 是否仍引用 `default_fast`。只改 `app.toml` 的默认模型仅影响之后创建且未显式指定模型的 Agent。
 
 **本地模型连接失败：** 先用 `curl <base_url>/models` 检查本地服务；核对端口、模型实际名称和服务绑定地址。FutureWork 默认使用 `8000`，示例 vLLM 使用 `8001`。局域网 HTTP 需要 `allow_insecure_http = true`。
 

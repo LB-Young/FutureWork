@@ -18,9 +18,13 @@ from futurework.contexts.types import ScopeKey
 from futurework.runtime.tool_dispatch import REPLAY_SAFE_TOOLS, SCHEMAS, ToolRegistry, ToolResult
 
 
-JSON_OUTPUTS = {"delegate_task": dict, "memory_search": dict, "plan_update": dict, "plan_check": dict,
+JSON_OUTPUTS = {"delegate_task": dict, "friend_create": dict, "team_create": dict,
+                "memory_search": dict, "plan_update": dict, "plan_check": dict,
                 "schedule_create": dict, "schedule_list": list, "user_profile_update": str}
-JSON_REQUIRED = {"delegate_task": {"task_id", "status"}, "memory_search": {"tier", "scope", "matches"},
+JSON_REQUIRED = {"delegate_task": {"task_id", "status"},
+                 "friend_create": {"id", "name", "model", "tools", "skills"},
+                 "team_create": {"id", "name", "member_ids", "mode"},
+                 "memory_search": {"tier", "scope", "matches"},
                  "plan_update": {"steps"}, "plan_check": {"id", "status", "evidence"},
                  "schedule_create": {"id", "prompt", "run_at", "status"}}
 
@@ -143,7 +147,7 @@ class ToolExecutionLayer:
             result = ToolResult(f"tool call denied: {type(error).__name__}", False, "invalid_input" if not isinstance(error, PermissionError) else "denied")
             self._audit(call, "deny", result, int((perf_counter() - started) * 1000))
             return result
-        if self.require_approval and call.name in self.policy["require_approval_for"]:
+        if (self.require_approval or call.name in {"friend_create", "team_create"}) and call.name in self.policy["require_approval_for"]:
             if self.approval_store is None:
                 result = ToolResult("tool call requires approval; approval channel unavailable", False, "approval_unavailable")
                 self._audit(call, "ask", result, int((perf_counter() - started) * 1000))

@@ -64,6 +64,10 @@ class ConfigStore:
             doc["tools"] = item["tools"]
             doc["capabilities"] = item["capabilities"]
             doc["approval"] = item["approval"]
+            if "skills" in item:
+                extensions = doc.get("extensions") or tomlkit.table()
+                extensions["skills"] = item["skills"]
+                doc["extensions"] = extensions
             doc.setdefault("kind", "friend")
             doc.setdefault("schema_version", 1)
         else:

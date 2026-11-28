@@ -9,18 +9,16 @@ from futurework.contexts.types import ScopeKey
 from futurework.database import decode_agent, utc_now
 from futurework.runtime.run_params import RunParams
 from futurework.runtime.task_factory import TaskFactory
-from futurework.kinds import ASSISTANT, FRIEND, TEAM, NATIVE, DELEGATION_AUTO
+from futurework.kinds import ASSISTANT, FRIEND, TEAM, DELEGATION_AUTO
 
 
 class DelegationService:
     """Create a durable task only after XiaoWei actually calls delegate_task."""
 
-    def __init__(self, database, config: dict, config_store, agent_service,
-                 message_service, agent_runtime, team_runtime) -> None:
+    def __init__(self, database, config: dict, message_service,
+                 agent_runtime, team_runtime) -> None:
         self.database = database
         self.config = config
-        self.config_store = config_store
-        self.agent_service = agent_service
         self.message_service = message_service
         self.agent_runtime = agent_runtime
         self.team_runtime = team_runtime
@@ -47,15 +45,18 @@ class DelegationService:
                 agents = [decode_agent(row) for row in connection.execute(
                     "SELECT * FROM agents WHERE status='active'")]
             assignments = []
+            missing = []
             for suggestion in self.planner.assign_steps(request, agents):
                 agent = self.database.agent(suggestion.agent_id) if suggestion.agent_id else None
                 if agent is None:
-                    with self.config_store.batch() as write_config, self.database.transaction() as connection:
-                        agent = self.agent_service.create(connection, write_config, suggestion.suggested_name,
-                                                          suggestion.suggested_role, suggestion.capability)
-                    agents.append(agent)
-                    self.agent_runtime.config["agent_execution"][agent["id"]] = {"kind": NATIVE}
-                assignments.append((agent, suggestion.title, suggestion.capability))
+                    missing.append({"capability": suggestion.capability, "suggested_name": suggestion.suggested_name,
+                                    "suggested_role": suggestion.suggested_role})
+                else:
+                    assignments.append((agent, suggestion.title, suggestion.capability))
+            if missing:
+                return json.dumps({"task_id": None, "status": "no_matching_friend", "missing": missing,
+                                   "next_action": "Use friend_create with an explicit model, tools and skills, then call delegate_task again."},
+                                  ensure_ascii=False)
         task_id = str(uuid4())
         with self.database.transaction() as connection:
             connection.execute("INSERT INTO tasks VALUES (?, ?, ?, 'running', ?)",
