@@ -168,7 +168,7 @@ def create_app(home: str | Path | None = None, db_path: str | Path | None = None
             "ui": config["ui"], "models": config["model"]["available_models"],
             "tools": config["permissions"]["available_tools"],
             "assistant_tools": list(dict.fromkeys([*config["permissions"]["available_tools"],
-                                                     "delegate_task", "friend_create", "team_create"])),
+                                                     "delegate_task", "friend_create", "team_create", "team_directory"])),
             "model_provider": config["model"]["provider"],
             "pending_approval_count": pending_approval_count,
             "extensions": config["installed_extensions"],

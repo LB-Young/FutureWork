@@ -102,16 +102,8 @@ class AgentRuntime:
                        "名字、职责、模型、工具、Skill 和能力；需要新群聊时用 team_create 指定成员和模式，"
                        "随后再调用 delegate_task。创建配置必须经过审批。普通问题直接回答。"
                        "只有工具实际返回结果后才能说任务已完成。")
-            friends = (self.agent_service.database.agents() if self.agent_service is not None
-                       else self.config["agents"]["seed"])
-            groups = (self.agent_service.database.groups() if self.agent_service is not None
-                      else self.config["groups"]["seed"])
-            active_friends = [item for item in friends if item.get("status") == "active"]
-            active_groups = [item for item in groups if item.get("status") == "active"]
-            system += ("\n当前团队 Agent 好友（用户问‘团队有哪些人’时应列出这些成员）："
-                       + "、".join([run.name, *(f"{item['name']}（{item['role']}）" for item in active_friends)])
-                       + "。当前群聊：" + ("、".join(item["name"] for item in active_groups) or "无")
-                       + "。询问某个群的成员时，再按该群配置回答。")
+            if "team_directory" in run.tools and self.agent_service is not None:
+                system += "\n需要确认当前好友、群聊或群成员时，调用 team_directory 查询实时目录，不要根据旧记忆猜测名单。"
             available_skills = sorted({*self.config["assistant"].get("extensions", {}).get("skills", []),
                                        *(item.rsplit("/", 2)[-2] for item in
                                          self.config.get("installed_extensions", {}).get("skills", []))})
@@ -146,6 +138,8 @@ class AgentRuntime:
                 grants = tuple(name for name in grants if name != "friend_create")
             if self.group_service is None:
                 grants = tuple(name for name in grants if name != "team_create")
+            if self.agent_service is None:
+                grants = tuple(name for name in grants if name != "team_directory")
         tools_for_run = ToolRegistry(run.agent_id, grants, self.config,
                                      scope=run.scope, memory_store=self.memory_store,
                                      delegation_service=self.delegation_service,

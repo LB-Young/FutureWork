@@ -1,0 +1,7 @@
+# 只读查询当前好友和群聊目录，运行权限由小未的 Agent TOML 控制。
+schema_version = 1
+id = "team_directory"
+version = "0.1.0"
+kind = "tool"
+executor = "futurework.abilities.tools.team_directory.handler:run"
+enabled = true

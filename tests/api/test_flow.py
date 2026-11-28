@@ -1,6 +1,9 @@
 """Exercise assistant dispatch, config writes, approvals, and both Team modes."""
 
+import asyncio
+import json
 import tomllib
+from types import SimpleNamespace
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
@@ -10,6 +13,8 @@ from tests.support import sample_home
 from futurework.integrations.model_gateway.gateway import ModelGateway
 from futurework.integrations.model_gateway.types import ModelResult, ToolCall
 from futurework.runtime.agent_executor import AgentResponse
+from futurework.runtime.tool_dispatch import ToolRegistry
+from futurework.contexts.types import ScopeKey
 
 
 def send(client, conversation_id, body):
@@ -55,6 +60,35 @@ def test_assistant_chat_stays_in_its_own_conversation(tmp_path, monkeypatch):
     assert response.json()["task_id"] is None
     messages = client.get("/api/v1/conversations/assistant/messages").json()
     assert [item["speaker"] for item in messages] == ["你", "小未"]
+
+
+def test_assistant_directory_tool_reads_current_friends_and_teams(tmp_path, monkeypatch):
+    seen = []
+
+    async def fake_generate(self, request):
+        if request.messages[-1]["role"] == "tool":
+            directory = json.loads(request.messages[-1]["content"])
+            seen.append(directory)
+            return ModelResult("团队有小未和数据专家，数据组包含数据专家。")
+        assert "team_directory" in {tool["function"]["name"] for tool in request.tools}
+        assert "当前团队 Agent 好友" not in request.messages[0]["content"]
+        return ModelResult(tool_calls=[ToolCall("directory-1", "team_directory", {})])
+
+    monkeypatch.setattr(ModelGateway, "generate", fake_generate)
+    client = TestClient(create_app(sample_home(tmp_path / "home")))
+    friend = client.post("/api/v1/agents", json={"name": "数据专家", "role": "分析数据"}).json()
+    client.post("/api/v1/groups", json={"name": "数据组", "member_ids": [friend["id"]], "mode": "swarm"})
+    assert send(client, "assistant", "团队有哪些人").status_code == 202
+    assert any(item["name"] == "数据专家" for item in seen[0]["friends"])
+    assert any(team["name"] == "数据组" and team["members"][0]["name"] == "数据专家"
+               for team in seen[0]["teams"])
+    assert seen[0]["assistant"]["name"] == "小未"
+
+    registry = ToolRegistry("image", ["team_directory"], client.app.state.config,
+                            scope=ScopeKey("agent", "image"),
+                            agent_service=SimpleNamespace(database=client.app.state.database,
+                                                          config=client.app.state.config))
+    assert not asyncio.run(registry.execute("team_directory", {})).success
 
 
 def test_approval_updates_agent_toml(tmp_path):

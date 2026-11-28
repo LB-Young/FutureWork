@@ -13,6 +13,7 @@ from futurework.abilities.tools.bash import handler as bash_handler
 from futurework.abilities.tools.delegate_task import handler as delegate_handler
 from futurework.abilities.tools.friend_create import handler as friend_create_handler
 from futurework.abilities.tools.team_create import handler as team_create_handler
+from futurework.abilities.tools.team_directory import handler as team_directory_handler
 from futurework.abilities.tools.calculator import handler as calculator_handler
 from futurework.abilities.tools.edit import handler as edit_handler
 from futurework.abilities.tools.glob import handler as glob_handler
@@ -58,6 +59,7 @@ SCHEMAS = {
                      "member_ids": {"type": "array", "items": {"type": "string"}},
                      "mode": {"type": "string", "enum": ["controlled", "swarm"]}},
                     ["name", "member_ids", "mode"]),
+    "team_directory": ("List currently active Agent friends and Teams with their member names; XiaoWei's personal conversation only.", {}, []),
     "skill_create": ("Create a reusable Skill in the user's abilities directory; requires approval.",
                      {"name": {"type": "string"}, "description": {"type": "string"},
                       "instructions": {"type": "string"}}, ["name", "description", "instructions"]),
@@ -123,9 +125,9 @@ SCHEMAS = {
               "timeout": {"type": "integer"}}, ["command"]),
 }
 
-PUBLIC_TOOLS = tuple(name for name in SCHEMAS if name not in {"read_file", "glob_files", "grep_files", "memory_search", "user_profile_update", "delegate_task", "friend_create", "team_create"})
+PUBLIC_TOOLS = tuple(name for name in SCHEMAS if name not in {"read_file", "glob_files", "grep_files", "memory_search", "user_profile_update", "delegate_task", "friend_create", "team_create", "team_directory"})
 REPLAY_SAFE_TOOLS = frozenset({"calculator", "read", "read_file", "glob", "glob_files", "grep", "grep_files",
-                               "memory_search", "skill_load", "web_fetch", "schedule_list"})
+                               "memory_search", "skill_load", "web_fetch", "schedule_list", "team_directory"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -229,6 +231,10 @@ class ToolRegistry:
                 if self.agent_id != ASSISTANT or self.scope is None or self.scope.kind != ASSISTANT or self.delegation_service is None:
                     return ToolResult("delegation is available only to XiaoWei's personal conversation", False)
                 content = await delegate_handler.run(arguments, self.delegation_service)
+            elif name == "team_directory":
+                if self.agent_id != ASSISTANT or self.scope is None or self.scope.kind != ASSISTANT or self.agent_service is None:
+                    return ToolResult("team directory is available only to XiaoWei's personal conversation", False)
+                content = team_directory_handler.run(arguments, self.agent_service)
             elif name in {"friend_create", "team_create"}:
                 if self.agent_id != ASSISTANT or self.scope is None or self.scope.kind != ASSISTANT:
                     return ToolResult("creation is available only to XiaoWei's personal conversation", False)

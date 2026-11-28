@@ -18,12 +18,13 @@ from futurework.contexts.types import ScopeKey
 from futurework.runtime.tool_dispatch import REPLAY_SAFE_TOOLS, SCHEMAS, ToolRegistry, ToolResult
 
 
-JSON_OUTPUTS = {"delegate_task": dict, "friend_create": dict, "team_create": dict,
+JSON_OUTPUTS = {"delegate_task": dict, "friend_create": dict, "team_create": dict, "team_directory": dict,
                 "memory_search": dict, "plan_update": dict, "plan_check": dict,
                 "schedule_create": dict, "schedule_list": list, "user_profile_update": str}
 JSON_REQUIRED = {"delegate_task": {"task_id", "status"},
                  "friend_create": {"id", "name", "model", "tools", "skills"},
                  "team_create": {"id", "name", "member_ids", "mode"},
+                 "team_directory": {"assistant", "friends", "teams"},
                  "memory_search": {"tier", "scope", "matches"},
                  "plan_update": {"steps"}, "plan_check": {"id", "status", "evidence"},
                  "schedule_create": {"id", "prompt", "run_at", "status"}}

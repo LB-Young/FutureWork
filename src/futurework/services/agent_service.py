@@ -82,7 +82,7 @@ class AgentService:
             raise AgentServiceError(422, "model is not available")
         tools = proposal["tools"]
         available = (set(self.config["permissions"]["available_tools"])
-                     | ({"delegate_task", "friend_create", "team_create"} if agent_id == ASSISTANT else set()))
+                     | ({"delegate_task", "friend_create", "team_create", "team_directory"} if agent_id == ASSISTANT else set()))
         if len(tools) != len(set(tools)) or not set(tools).issubset(available):
             raise AgentServiceError(422, "unknown or duplicate tool")
         if existing["version"] != proposal["expected_version"]:
