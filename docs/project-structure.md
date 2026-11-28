@@ -365,7 +365,7 @@ api_version = "2023-06-01"
 
 [models.default_fast]
 provider = "deepseek"
-remote_id = "deepseek-chat"
+remote_id = "deepseek-flash"
 context_window = 64000
 supports_tools = true
 supports_streaming = true

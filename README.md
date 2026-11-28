@@ -255,7 +255,7 @@ futurework serve
 
 | 平台或示例 | 默认别名 | 密钥环境变量 |
 | --- | --- | --- |
-| DeepSeek | `default_fast`、`deepseek_chat` | `DEEPSEEK_API_KEY` |
+| DeepSeek | `default_fast`、`deepseek_flash`（请求模型名为 `deepseek-flash`） | `DEEPSEEK_API_KEY` |
 | Kimi | `kimi_k3` | `MOONSHOT_API_KEY` |
 | MiniMax | `minimax_m3` | `MINIMAX_API_KEY` |
 | 小米 MiMo | `mimo_default` | `MIMO_API_KEY` |

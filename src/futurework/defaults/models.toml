@@ -5,6 +5,7 @@ schema_version = 1
 adapter = "openai_chat"
 base_url = "https://api.deepseek.com"
 api_key_env = "DEEPSEEK_API_KEY"
+# 仅用于兼容本机 Bamboo 凭据条目；实际请求模型由 remote_id 指定。
 bamboo_model = "deepseek-chat"
 
 [providers.openai]
@@ -78,13 +79,13 @@ allow_insecure_http = true
 
 [models.default_fast]
 provider = "deepseek"
-remote_id = "deepseek-chat"
+remote_id = "deepseek-flash"
 supports_tools = true
 supports_streaming = true
 
-[models.deepseek_chat]
+[models.deepseek_flash]
 provider = "deepseek"
-remote_id = "deepseek-chat"
+remote_id = "deepseek-flash"
 supports_tools = true
 
 [models.kimi_k3]

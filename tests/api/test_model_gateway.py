@@ -30,7 +30,7 @@ def test_deepseek_adapter_uses_environment_and_never_needs_a_file_key(tmp_path, 
     assert answer == "已完成"
     assert seen[0].url == "https://api.deepseek.com/chat/completions"
     assert seen[0].headers["authorization"] == "Bearer test-only-key"
-    assert json.loads(seen[0].content)["model"] == "deepseek-chat"
+    assert json.loads(seen[0].content)["model"] == "deepseek-flash"
 
 
 def test_gateway_retries_a_transient_deepseek_response(tmp_path, monkeypatch):

@@ -40,6 +40,6 @@ def test_assistant_task_calls_deepseek_and_persists_result(tmp_path, monkeypatch
     task = client.get(f"/api/v1/tasks/{response.json()['task_id']}").json()
     assert task["status"] == "completed"
     assert len(calls) >= 3
-    assert all(call["model"] == "deepseek-chat" for call in calls)
+    assert all(call["model"] == "deepseek-flash" for call in calls)
     messages = client.get("/api/v1/conversations/assistant/messages").json()
     assert "竞品分析初稿已完成" in messages[-1]["text"]
