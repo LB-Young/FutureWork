@@ -164,9 +164,11 @@ def create_app(home: str | Path | None = None, db_path: str | Path | None = None
     def bootstrap():
         pending_approval_count = len(database.inbox(config, "approvals"))
         return {
-            "agents": database.agents(), "groups": database.groups(),
+            "agents": database.agents(), "assistant": agent_service.assistant(), "groups": database.groups(),
             "ui": config["ui"], "models": config["model"]["available_models"],
             "tools": config["permissions"]["available_tools"],
+            "assistant_tools": list(dict.fromkeys([*config["permissions"]["available_tools"],
+                                                     "delegate_task", "friend_create", "team_create"])),
             "model_provider": config["model"]["provider"],
             "pending_approval_count": pending_approval_count,
             "extensions": config["installed_extensions"],
@@ -199,7 +201,7 @@ def create_app(home: str | Path | None = None, db_path: str | Path | None = None
 
     @app.get("/api/v1/agents/{agent_id}")
     def agent(agent_id: str):
-        result = database.agent(agent_id)
+        result = agent_service.assistant() if agent_id == ASSISTANT else database.agent(agent_id)
         if not result:
             raise HTTPException(404, "agent not found")
         return result

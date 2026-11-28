@@ -137,7 +137,8 @@ def test_every_agent_sees_user_profile_and_assistant_gets_skill_creator(tmp_path
     runtime = AgentRuntime(config, model_gateway=Gateway())
     for item_id in ("assistant", "image"):
         agent = {"id": item_id, "name": "小未" if item_id == "assistant" else "小T",
-                 "role": "助理", "model": "default_fast", "tools": ["skill_create"] if item_id == "assistant" else []}
+                 "role": "助理", "model": "default_fast",
+                 "tools": config["assistant"]["tools"] if item_id == "assistant" else []}
         assert asyncio.run(runtime.respond(agent, [{"from": "me", "text": "你好"}])) == "完成"
 
 

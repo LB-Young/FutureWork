@@ -94,7 +94,7 @@ function renderChat() {
   $('#chatAvatar').outerHTML = assistant ? '<div class="avatar assistant-avatar" id="chatAvatar">✦</div>' : `<div class="avatar" id="chatAvatar" style="background:${item.color};color:${item.ink}">${escapeHtml(item.icon)}</div>`;
   $('#chatTitle').innerHTML = assistant ? `${escapeHtml(bootstrap.ui.assistant_name)} <span class="assistant-label">${escapeHtml(bootstrap.ui.assistant_role)}</span>` : `${escapeHtml(item.name)} <span class="assistant-label">${agents.includes(item) ? 'Agent 好友' : '协作群聊'}</span>`;
   $('#chatSubtitle').textContent = `${assistant ? '在线 · 随时为你协调团队' : item.role}${bootstrap.model_provider === 'mock' ? ' · 本地演示模式' : ''}`;
-  $('#agentSettings').hidden = assistant || !agents.includes(item);
+  $('#agentSettings').hidden = !assistant && !agents.includes(item);
   $('#messageInput').placeholder = assistant ? `给${bootstrap.ui.assistant_name}发消息，或安排一个任务…` : `给${item.name}发消息…`;
   $('#suggestions').hidden = !assistant || messages.length > 0;
   $('#suggestions').innerHTML = bootstrap.ui.suggestions.map((prompt) => `<button data-prompt="${escapeHtml(prompt)}">${escapeHtml(prompt)}</button>`).join('');
@@ -162,7 +162,7 @@ function closeOverlays() {
 }
 
 function openSettings() {
-  const agent = agents.find((item) => item.id === selected);
+  const agent = selected === 'assistant' ? bootstrap.assistant : agents.find((item) => item.id === selected);
   if (!agent) return;
   settingsAgent = agent;
   $('#drawerTitle').textContent = `${agent.name}的能力配置`;
@@ -173,7 +173,7 @@ function openSettings() {
   $('#modelSelect').innerHTML = bootstrap.models.map((model) => `<option>${escapeHtml(model)}</option>`).join('');
   $('#modelSelect').value = agent.model;
   $('#approvalToggle').checked = agent.approval;
-  $('#toolToggles').innerHTML = bootstrap.tools.map((tool) => `<label class="setting-row"><span><strong>${escapeHtml(tool)}</strong><small>记录授权意图；执行器尚未接入</small></span><input type="checkbox" data-tool="${escapeHtml(tool)}" ${agent.tools.includes(tool) ? 'checked' : ''}/><span class="switch"></span></label>`).join('');
+  $('#toolToggles').innerHTML = (agent.id === 'assistant' ? bootstrap.assistant_tools : bootstrap.tools).map((tool) => `<label class="setting-row"><span><strong>${escapeHtml(tool)}</strong></span><input type="checkbox" data-tool="${escapeHtml(tool)}" ${agent.tools.includes(tool) ? 'checked' : ''}/><span class="switch"></span></label>`).join('');
   $('#overlay').hidden = false;
   $('#settingsDrawer').classList.add('open');
   $('#settingsDrawer').setAttribute('aria-hidden', 'false');
@@ -186,7 +186,10 @@ async function saveSettings() {
       method: 'PATCH', body: JSON.stringify({
         expected_version: settingsAgent.version,
         model: $('#modelSelect').value,
-        tools: [...document.querySelectorAll('[data-tool]:checked')].map((input) => input.dataset.tool),
+        tools: [...new Set([
+          ...[...document.querySelectorAll('[data-tool]:checked')].map((input) => input.dataset.tool),
+          ...settingsAgent.tools.filter((tool) => !document.querySelector(`[data-tool="${CSS.escape(tool)}"]`))
+        ])],
         approval: $('#approvalToggle').checked
       })
     });
@@ -277,7 +280,7 @@ $('#imageInput').addEventListener('change', async (event) => {
   } catch (error) { showToast(error.message); }
   finally { event.target.value = ''; }
 });
-$('#messageInput').addEventListener('keydown', (event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); $('#messageForm').requestSubmit(); } });
+$('#messageInput').addEventListener('keydown', (event) => { if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !event.isComposing && event.keyCode !== 229) { event.preventDefault(); $('#messageForm').requestSubmit(); } });
 $('#homeButton').addEventListener('click', () => selectConversation('assistant'));
 $('#railAgents').addEventListener('click', () => { $('#sidebar').classList.remove('collapsed'); $('#sidebar').classList.add('mobile-open'); $('#agentsToggle').setAttribute('aria-expanded', 'true'); $('#agentList').classList.remove('collapsed'); });
 $('#railGroups').addEventListener('click', () => { $('#sidebar').classList.remove('collapsed'); $('#sidebar').classList.add('mobile-open'); $('#groupsToggle').setAttribute('aria-expanded', 'true'); $('#groupList').classList.remove('collapsed'); });

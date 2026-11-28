@@ -74,7 +74,9 @@ def test_approval_updates_agent_toml(tmp_path):
 
 def test_swarm_and_controlled_group_replies(tmp_path, monkeypatch):
     async def fake_respond(self, agent, history, scope=None):
-        return "design" if agent["id"] == "assistant" else f"{agent['name']} 的回复"
+        if agent["id"] == "assistant":
+            return "小未汇报结果" if "汇报本轮" in history[-1]["text"] else '{"action":"delegate","agent_id":"design"}'
+        return f"{agent['name']} 的回复"
 
     monkeypatch.setattr("futurework.model.AgentRuntime.respond", fake_respond)
     home = sample_home(tmp_path / "home")
@@ -90,7 +92,7 @@ def test_swarm_and_controlled_group_replies(tmp_path, monkeypatch):
     controlled_id = controlled.json()["id"]
     assert send(client, controlled_id, "请安排设计").status_code == 202
     speakers = [item["speaker"] for item in client.get(f"/api/v1/conversations/{controlled_id}/messages").json()]
-    assert speakers == ["你", "小未", "小绘"]
+    assert speakers == ["你", "小未", "小绘", "小未"]
 
 
 def test_installed_web_page_and_bootstrap_are_served(tmp_path):
@@ -120,9 +122,14 @@ def test_manual_agent_edit_reloads_without_mixing_private_chats(tmp_path, monkey
 
 
 def test_controlled_group_can_assign_two_members_and_summarize(tmp_path, monkeypatch):
+    decisions = []
     async def fake_respond(self, agent, history, scope=None):
         if agent["id"] == "assistant":
-            return "任务已汇总" if "简要汇总" in history[-1]["text"] else '{"agent_ids":["design","write"]}'
+            if "汇报本轮" in history[-1]["text"]:
+                return "任务已汇总"
+            decisions.append([item["speaker"] for item in history if "speaker" in item])
+            return ('{"action":"delegate","agent_id":"design"}' if len(decisions) == 1
+                    else '{"action":"delegate","agent_id":"write"}')
         return f"{agent['name']} 已完成"
 
     monkeypatch.setattr("futurework.model.AgentRuntime.respond", fake_respond)
@@ -131,4 +138,30 @@ def test_controlled_group_can_assign_two_members_and_summarize(tmp_path, monkeyp
     group_id = response.json()["id"]
     assert send(client, group_id, "请设计并写发布文案").status_code == 202
     speakers = [item["speaker"] for item in client.get(f"/api/v1/conversations/{group_id}/messages").json()]
-    assert speakers == ["你", "小未", "小绘", "言言", "小未"]
+    assert speakers == ["你", "小未", "小绘", "小未", "言言", "小未"]
+    assert len(decisions) == 2
+    assert "小绘" in decisions[1]
+
+
+def test_assistant_settings_follow_friend_approval_flow(tmp_path):
+    home = sample_home(tmp_path / "home")
+    client = TestClient(create_app(home))
+    assistant = client.get("/api/v1/agents/assistant").json()
+    assert client.get("/api/v1/bootstrap").json()["assistant"]["id"] == "assistant"
+    assert "delegate_task" in assistant["tools"]
+    proposal = {"expected_version": assistant["version"], "model": "default_fast",
+                "tools": [*assistant["tools"], "write"], "approval": True}
+    pending = client.patch("/api/v1/agents/assistant", json=proposal).json()
+    assert pending["status"] == "pending_approval"
+    assert "write" not in client.get("/api/v1/agents/assistant").json()["tools"]
+    assert client.post(f"/api/v1/approvals/{pending['approval_id']}/decision", json={"decision": "approve"}).status_code == 200
+    updated = client.get("/api/v1/agents/assistant").json()
+    assert "write" in updated["tools"] and updated["version"] == assistant["version"] + 1
+    with (home / "agents" / "assistant.toml").open("rb") as source:
+        assert tomllib.load(source)["version"] == updated["version"]
+    assert "write" in TestClient(create_app(home)).get("/api/v1/agents/assistant").json()["tools"]
+    revised = client.patch("/api/v1/agents/assistant", json={
+        "expected_version": updated["version"], "model": updated["model"],
+        "tools": [tool for tool in updated["tools"] if tool != "delegate_task"], "approval": True})
+    assert revised.json()["status"] == "updated"
+    assert "delegate_task" not in client.get("/api/v1/agents/assistant").json()["tools"]

@@ -8,7 +8,7 @@ from futurework.algorithm import TaskPlanner
 from futurework.contexts.types import ScopeKey
 from futurework.database import decode_agent, utc_now
 from futurework.extension_system.skill_loader import load_skills
-from futurework.kinds import FRIEND, NATIVE
+from futurework.kinds import ASSISTANT, FRIEND, NATIVE
 
 
 class AgentServiceError(Exception):
@@ -75,13 +75,15 @@ class AgentService:
 
     def patch_agent(self, agent_id: str, proposal: dict) -> dict:
         """Apply a safe patch or create a review request for elevated permissions."""
-        existing = self.database.agent(agent_id)
+        existing = self.assistant() if agent_id == ASSISTANT else self.database.agent(agent_id)
         if not existing:
             raise AgentServiceError(404, "agent not found")
         if proposal["model"] not in self.config["model"]["available_models"]:
             raise AgentServiceError(422, "model is not available")
         tools = proposal["tools"]
-        if len(tools) != len(set(tools)) or not set(tools).issubset(self.config["permissions"]["available_tools"]):
+        available = (set(self.config["permissions"]["available_tools"])
+                     | ({"delegate_task", "friend_create", "team_create"} if agent_id == ASSISTANT else set()))
+        if len(tools) != len(set(tools)) or not set(tools).issubset(available):
             raise AgentServiceError(422, "unknown or duplicate tool")
         if existing["version"] != proposal["expected_version"]:
             raise AgentServiceError(409, "agent configuration has changed")
@@ -99,7 +101,16 @@ class AgentService:
             return {"status": "pending_approval", "approval_id": approval_id}
         with self.config_store.batch() as write_config, self.database.transaction() as connection:
             self.apply_patch(connection, write_config, agent_id, proposal)
-        return {"status": "updated", "agent": self.database.agent(agent_id)}
+        return {"status": "updated", "agent": self.assistant() if agent_id == ASSISTANT else self.database.agent(agent_id)}
+
+    def assistant(self) -> dict:
+        """Expose the personal assistant through the same settings contract as friends."""
+        definition = self.config["assistant"]
+        return {"id": ASSISTANT, "name": definition["name"], "role": definition["role"],
+                "icon": "✦", "color": "#efe8dc", "ink": "#7b5a49",
+                "model": definition["model"]["id"], "tools": list(definition.get("tools", [])),
+                "capabilities": definition.get("capabilities", {}),
+                "approval": definition.get("approval", True), "version": definition.get("version", 1)}
 
     def pending_approvals(self) -> list[dict]:
         """Return unexpired approval records with parsed proposals."""
@@ -160,6 +171,18 @@ class AgentService:
 
     def apply_patch(self, connection, write_config, agent_id: str, proposal: dict) -> None:
         """Apply a version checked Agent patch and update its TOML definition."""
+        if agent_id == ASSISTANT:
+            current = self.assistant()
+            if current["version"] != proposal["expected_version"]:
+                raise AgentServiceError(409, "agent configuration has changed")
+            updated = {**current, "model": proposal["model"], "tools": proposal["tools"],
+                       "approval": proposal["approval"], "version": current["version"] + 1}
+            write_config("agents", updated)
+            self.config["assistant"].update({"model": {**self.config["assistant"]["model"], "id": updated["model"]},
+                                             "tools": updated["tools"], "approval": updated["approval"],
+                                             "version": updated["version"]})
+            self.database.emit(connection, "agent.updated", {"agent_id": agent_id})
+            return
         current = connection.execute("SELECT version FROM agents WHERE id=?", (agent_id,)).fetchone()
         if not current or current["version"] != proposal["expected_version"]:
             raise AgentServiceError(409, "agent configuration has changed")

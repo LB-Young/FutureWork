@@ -130,10 +130,7 @@ class AgentRuntime:
                         for item in run.history)
         grants = run.tools
         if run.agent_id == ASSISTANT and run.scope.kind == ASSISTANT:
-            grants = tuple(dict.fromkeys((*grants, "plan_update", "plan_check", "schedule_create", "schedule_list")))
-            if self.delegation_service is not None:
-                grants = tuple(dict.fromkeys((*grants, "delegate_task")))
-            else:
+            if self.delegation_service is None:
                 grants = tuple(name for name in grants if name != "delegate_task")
             if self.agent_service is None:
                 grants = tuple(name for name in grants if name != "friend_create")

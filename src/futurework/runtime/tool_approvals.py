@@ -57,8 +57,7 @@ class ToolApprovalStore:
         """Recheck the current Agent grant after a potentially long approval wait."""
         if agent_id == "assistant":
             grants = set(self.config["assistant"].get("tools", []))
-            grants.update({"plan_update", "plan_check", "schedule_create", "schedule_list",
-                           "memory_search", "user_profile_update"})
+            grants.update({"memory_search", "user_profile_update"})
             return tool_name in grants
         agent = self.database.agent(agent_id)
         return bool(agent and agent["status"] == "active" and

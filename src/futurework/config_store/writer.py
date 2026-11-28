@@ -56,6 +56,8 @@ class ConfigStore:
             if key in item:
                 doc[key] = item[key]
         if kind == "agents":
+            if item["id"] == "assistant":
+                doc["version"] = item["version"]
             model = doc.get("model")
             if model is None:
                 model = tomlkit.table()

@@ -410,15 +410,15 @@ Web / App / API / CLI → RunParams → TaskFactory → TaskRuntime
                                           │                 ├─ ToolExecutionLayer
                                           │                 └─ delegate_task（仅小未个人会话）
                                           └─ 群聊 → TeamRuntime
-                                                     ├─ SwarmPolicy 或 GroupController
-                                                     └─ AgentRuntime（成员，使用群 ScopeKey）
+                                                     ├─ SwarmRuntime（独立成员循环）
+                                                     └─ ControlledRuntime（小未逐步决策、成员执行、小未汇报）
 ```
 
 `delegate_task` 只在小未个人会话中开放，用于指派给已有好友或群聊。自动匹配由 `DelegationService` 调用 TaskPlanner；若缺少能力，返回建议且不创建任务或好友。`friend_create` 是独立的好友创建工具，可设置名称、职责、已有模型别名、工具、Skill 和能力；`team_create` 是独立的群创建工具，可设置已有成员及 `swarm`／`controlled` 模式。这两个创建工具必须经单次审批，随后由现有 AgentService／GroupService 校验并写入配置。小未可以在创建成功后再次调用 `delegate_task`。群目标进入 TeamRuntime，个人好友目标进入同一 AgentRuntime；小未的群中控使用群作用域，不获得这些个人会话工具。
 
 各层错误政策独立配置：`runtime.toml [task_retry]` 只重试安全的传输失败且不能在已发生工具副作用后重放整个任务；`[agent_retry]` 在模型调用前/期间对暂时网络错误进行有限重试；`[team_retry]` 对成员调用和中控选择进行有限重试。`tools.toml [execution]` 仅对可重放的读类工具自动重试，其他工具失败将错误码与尝试次数反馈给 Agent，由模型选择替代方案。401/403、参数/授权错误、配置错误和外部 Agent 结果不确定都直接终止自动重试。模型网关仍有供应商级的短暂 HTTP 重试预算。外部 Codex、OpenClaw、Claude Code 属于 AgentRuntime 的执行后端，不改变任务或群作用域。
 
-当前版本使用 SQLite 保存消息、任务、审批和事件；完整的跨进程 checkpoint、任务租约和事件重放仍是目标设计。任务一旦可能产生副作用，重启后不会自动重放旧版本未完成步骤。群聊当前为有界单轮执行，完整的多轮协作计划仍属于后续扩展。
+当前版本使用 SQLite 保存消息、任务、审批和事件；完整的跨进程 checkpoint、任务租约和事件重放仍是目标设计。任务一旦可能产生副作用，重启后不会自动重放旧版本未完成步骤。群聊按模式使用独立的有界执行循环；Controlled 每位成员回复后由小未重新决策，受群配置中的轮数、成员数和模型调用预算限制。跨请求的长期多轮协作计划仍属于后续扩展。
 
 ### 3.5 多入口的统一执行链（目标设计）
 
