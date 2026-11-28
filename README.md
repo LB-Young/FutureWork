@@ -36,20 +36,36 @@ FutureWork 是一个可以在本机安装和运行的 Agent 团队应用。界�
 
 ## 安装与首次运行
 
-需要 Python 3.12 或更高版本。在仓库根目录执行：
+以下步骤以 macOS 的 zsh 和 Miniconda 为例，从新建环境到打开网页。先安装 Miniconda，并克隆仓库、进入项目根目录；如果仓库已经在本机，直接进入现有目录即可：
 
 ```bash
+git clone -b feat/futurework-development git@github.com:LB-Young/FutureWork.git
+cd FutureWork
+conda create -n futurework python=3.12 pip -y
+conda activate futurework
 python -m pip install -e .
+python -c 'import sys; print(sys.executable)'
 futurework init
-futurework doctor
 futurework serve
 ```
 
-`futurework init` 创建用户目录和缺失的初始配置；默认位置是 `~/.FutureWork/`。`futurework doctor` 检查 TOML 配置和外部 Agent 的本机 CLI 健康状态；执行器不可用时返回非零状态。它不会连接模型服务，也不保证模型 ID、账户余额或密钥有效。`futurework serve` 默认只监听 `127.0.0.1:8000`。浏览器打开 <http://127.0.0.1:8000/>；接口文档在 <http://127.0.0.1:8000/docs>。
+如果 `conda activate` 提示需要初始化 shell，先执行 `conda init zsh`，关闭并重新打开终端，然后从 `conda activate futurework` 继续。`python -c` 应打印 `.../miniconda3/envs/futurework/bin/python`；安装和启动都应在这个环境中进行。以后每次打开新终端，先进入仓库并执行 `conda activate futurework`，再运行 `futurework serve`。升级代码后，在该环境中重新执行 `python -m pip install -e .`；项目采用可编辑安装，通常只需重启服务即可加载代码改动。
+
+`futurework init` 创建用户目录和缺失的初始配置；默认位置是 `~/.FutureWork/`。首次与云模型对话前，在 `~/.FutureWork/.env` 中填写对应密钥；无需把密钥写进仓库。`futurework serve` 默认监听 `127.0.0.1:8000`，浏览器打开 <http://127.0.0.1:8000/>，接口文档在 <http://127.0.0.1:8000/docs>。若要改端口，编辑 `~/.FutureWork/app.toml` 的 `[server] port`，保存后重启；例如设为 `8001`，页面就是 <http://127.0.0.1:8001/>。
+
+另开一个终端，可用以下命令验证服务和配置：
+
+```bash
+conda activate futurework
+curl http://127.0.0.1:8000/api/v1/health
+futurework doctor
+```
+
+若已改成 `8001`，把 `curl` 中的端口也改成 `8001`。`futurework doctor` 会检查 TOML 和外部 Agent 的本机 CLI 状态；未安装某个可选外部执行器时会返回非零状态，但这不妨碍已配置好的内置 Agent 和网页运行。它不会连接模型服务，也不能验证模型 ID、账户余额或密钥是否可用。
 
 ### 关闭并重新启动服务
 
-如果 `futurework serve` 正在当前终端前台运行，按 `Ctrl+C` 停止；等待出现 `Application shutdown complete` 后，再执行 `futurework serve`。
+如果 `futurework serve` 正在当前终端前台运行，按 `Ctrl+C` 停止；等待出现 `Application shutdown complete` 后，确认已进入 `futurework` Conda 环境，再执行 `futurework serve`。
 
 如果终端已经关闭，或启动时报 `address already in use`，先查看占用端口的进程：
 
@@ -61,6 +77,7 @@ lsof -nP -iTCP:8000 -sTCP:LISTEN
 
 ```bash
 kill -TERM 12345
+conda activate futurework
 futurework serve
 ```
 
