@@ -14,6 +14,8 @@ let lastSequence = 0;
 let refreshTimer;
 let reconnectTimer;
 let toastTimer;
+let composingMessage = false;
+let lastCompositionEnd = -Infinity;
 const $ = (selector) => document.querySelector(selector);
 const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
 const renderMessageText = (value) => String(value ?? '').split(/(https:\/\/[^\s<>"']+|\/api\/v1\/artifacts\/(?:media|outputs)\/[A-Za-z0-9_.-]+)/g).map((part) => {
@@ -280,7 +282,16 @@ $('#imageInput').addEventListener('change', async (event) => {
   } catch (error) { showToast(error.message); }
   finally { event.target.value = ''; }
 });
-$('#messageInput').addEventListener('keydown', (event) => { if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !event.isComposing && event.keyCode !== 229) { event.preventDefault(); $('#messageForm').requestSubmit(); } });
+$('#messageInput').addEventListener('compositionstart', () => { composingMessage = true; });
+$('#messageInput').addEventListener('compositionend', () => { composingMessage = false; lastCompositionEnd = performance.now(); });
+$('#messageInput').addEventListener('keydown', (event) => {
+  if (event.key !== 'Enter' || event.shiftKey) return;
+  if (event.isComposing || composingMessage || event.keyCode === 229) return;
+  // Some input methods emit the confirming Enter immediately after compositionend.
+  event.preventDefault();
+  if (performance.now() - lastCompositionEnd < 120 || event.repeat) return;
+  $('#messageForm').requestSubmit();
+});
 $('#homeButton').addEventListener('click', () => selectConversation('assistant'));
 $('#railAgents').addEventListener('click', () => { $('#sidebar').classList.remove('collapsed'); $('#sidebar').classList.add('mobile-open'); $('#agentsToggle').setAttribute('aria-expanded', 'true'); $('#agentList').classList.remove('collapsed'); });
 $('#railGroups').addEventListener('click', () => { $('#sidebar').classList.remove('collapsed'); $('#sidebar').classList.add('mobile-open'); $('#groupsToggle').setAttribute('aria-expanded', 'true'); $('#groupList').classList.remove('collapsed'); });
